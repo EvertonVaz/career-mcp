@@ -1,13 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../config.js';
-import { createApp } from '../../http/app.js';
-
-const TOKEN = 'token-de-teste';
+import { startHarness, type Harness } from '../../test/harness.js';
 
 const CAREER_YAML = `
 profile:
@@ -48,50 +40,21 @@ languages:
     level: B2
 `;
 
-let dir: string;
-let careerPath: string;
-let client: Client;
-let server: ReturnType<ReturnType<typeof createApp>['listen']>;
+let h: Harness;
 
 beforeAll(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), 'career-'));
-  careerPath = path.join(dir, 'career.yml');
-  await writeFile(careerPath, CAREER_YAML);
-
-  const app = createApp(loadConfig({ MCP_AUTH_TOKEN: TOKEN, CAREER_DATA_DIR: dir }));
-  server = app.listen(0);
-  await new Promise((resolve) => server.once('listening', resolve));
-  const address = server.address();
-  if (typeof address === 'string' || address === null) throw new Error('sem porta');
-
-  client = new Client({ name: 'vitest', version: '0' });
-  await client.connect(
-    new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`), {
-      requestInit: { headers: { authorization: `Bearer ${TOKEN}` } },
-    }),
-  );
+  h = await startHarness(CAREER_YAML);
 });
 
-afterAll(async () => {
-  await client.close();
-  await new Promise((resolve) => server.close(resolve));
-  await rm(dir, { recursive: true, force: true });
-});
+afterAll(() => h.close());
 
-beforeEach(async () => {
-  await writeFile(careerPath, CAREER_YAML);
-});
+beforeEach(() => h.writeCareer(CAREER_YAML));
 
-async function read(uri: string): Promise<unknown> {
-  const [content] = (await client.readResource({ uri })).contents;
-  if (content === undefined || !('text' in content)) throw new Error(`${uri} não veio como texto`);
-
-  return JSON.parse(content.text);
-}
+const read = (uri: string): Promise<unknown> => h.readResource(uri);
 
 describe('resources career://', () => {
   it('lista os sete resources de leitura', async () => {
-    const { resources } = await client.listResources();
+    const { resources } = await h.client.listResources();
 
     expect(resources.map((r) => r.uri).sort()).toEqual([
       'career://certifications',
@@ -105,7 +68,7 @@ describe('resources career://', () => {
   });
 
   it('anuncia mimeType application/json', async () => {
-    const { resources } = await client.listResources();
+    const { resources } = await h.client.listResources();
 
     expect(resources.every((r) => r.mimeType === 'application/json')).toBe(true);
   });
@@ -153,26 +116,26 @@ describe('resources career://', () => {
   });
 
   it('reflete alteração no arquivo sem reiniciar o servidor', async () => {
-    await writeFile(careerPath, CAREER_YAML.replace('Desenvolvedor', 'Tech Lead'));
+    await h.writeCareer(CAREER_YAML.replace('Desenvolvedor', 'Tech Lead'));
 
     expect(await read('career://profile')).toMatchObject({ headline: 'Tech Lead' });
   });
 
   it('falha em uri desconhecida', async () => {
-    await expect(client.readResource({ uri: 'career://inexistente' })).rejects.toThrow();
+    await expect(h.client.readResource({ uri: 'career://inexistente' })).rejects.toThrow();
   });
 
   it('propaga erro de validação citando o campo', async () => {
-    await writeFile(careerPath, CAREER_YAML.replace('01/03/2023', '2023-03'));
+    await h.writeCareer(CAREER_YAML.replace('01/03/2023', '2023-03'));
 
-    await expect(client.readResource({ uri: 'career://experiences' })).rejects.toThrow(
+    await expect(h.client.readResource({ uri: 'career://experiences' })).rejects.toThrow(
       /experiences\.0\.start/,
     );
   });
 
   it('propaga erro quando o career.yml não existe', async () => {
-    await rm(careerPath);
+    await h.removeCareer();
 
-    await expect(client.readResource({ uri: 'career://profile' })).rejects.toThrow(/career\.yml/);
+    await expect(h.client.readResource({ uri: 'career://profile' })).rejects.toThrow(/career\.yml/);
   });
 });

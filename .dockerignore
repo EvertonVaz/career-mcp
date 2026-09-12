@@ -10,3 +10,4 @@ docker
 docker-compose.yml
 plan.md
 **/*.test.ts
+src/test

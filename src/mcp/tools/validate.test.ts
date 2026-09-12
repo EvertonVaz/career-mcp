@@ -1,13 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../config.js';
-import { createApp } from '../../http/app.js';
-
-const TOKEN = 'token-de-teste';
+import { startHarness, type Harness } from '../../test/harness.js';
 
 /** Tudo preenchido e confirmado: a auditoria não deve ter o que reclamar. */
 const CLEAN = `
@@ -40,11 +32,6 @@ skills:
     provenance: { verified: true }
 `;
 
-let dir: string;
-let careerPath: string;
-let client: Client;
-let server: ReturnType<ReturnType<typeof createApp>['listen']>;
-
 type Report = {
   valid: boolean;
   schema_issues: { path: string; message: string }[];
@@ -53,35 +40,17 @@ type Report = {
   counts?: Record<string, number>;
 };
 
+let h: Harness;
+
 beforeAll(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), 'career-'));
-  careerPath = path.join(dir, 'career.yml');
-  await writeFile(careerPath, CLEAN);
-
-  const app = createApp(loadConfig({ MCP_AUTH_TOKEN: TOKEN, CAREER_DATA_DIR: dir }));
-  server = app.listen(0);
-  await new Promise((resolve) => server.once('listening', resolve));
-  const address = server.address();
-  if (typeof address === 'string' || address === null) throw new Error('sem porta');
-
-  client = new Client({ name: 'vitest', version: '0' });
-  await client.connect(
-    new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`), {
-      requestInit: { headers: { authorization: `Bearer ${TOKEN}` } },
-    }),
-  );
+  h = await startHarness(CLEAN);
 });
 
-afterAll(async () => {
-  await client.close();
-  await new Promise((resolve) => server.close(resolve));
-  await rm(dir, { recursive: true, force: true });
-});
+afterAll(() => h.close());
 
 async function validate(yaml: string): Promise<Report> {
-  await writeFile(careerPath, yaml);
-  const result = await client.callTool({ name: 'validate_all', arguments: {} });
-  return result.structuredContent as unknown as Report;
+  await h.writeCareer(yaml);
+  return h.callTool<Report>('validate_all');
 }
 
 function codes(report: Report): string[] {
@@ -90,7 +59,7 @@ function codes(report: Report): string[] {
 
 describe('validate_all', () => {
   it('está registrada como leitura', async () => {
-    const { tools } = await client.listTools();
+    const { tools } = await h.client.listTools();
     const tool = tools.find((t) => t.name === 'validate_all');
 
     expect(tool?.annotations?.readOnlyHint).toBe(true);
@@ -159,8 +128,8 @@ describe('validate_all', () => {
   });
 
   it('falha de verdade quando o career.yml não existe', async () => {
-    await rm(careerPath);
-    const result = await client.callTool({ name: 'validate_all', arguments: {} });
+    await h.removeCareer();
+    const result = await h.client.callTool({ name: 'validate_all', arguments: {} });
 
     expect(result.isError).toBe(true);
   });

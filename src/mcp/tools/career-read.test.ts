@@ -1,13 +1,5 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { loadConfig } from '../../config.js';
-import { createApp } from '../../http/app.js';
-
-const TOKEN = 'token-de-teste';
+import { startHarness, type Harness } from '../../test/harness.js';
 
 const CAREER_YAML = `
 profile:
@@ -62,38 +54,16 @@ type SearchResult = {
   results: Record<string, unknown>[];
 };
 
-let dir: string;
-let client: Client;
-let server: ReturnType<ReturnType<typeof createApp>['listen']>;
+let h: Harness;
 
 beforeAll(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), 'career-'));
-  await writeFile(path.join(dir, 'career.yml'), CAREER_YAML);
-
-  const app = createApp(loadConfig({ MCP_AUTH_TOKEN: TOKEN, CAREER_DATA_DIR: dir }));
-  server = app.listen(0);
-  await new Promise((resolve) => server.once('listening', resolve));
-  const address = server.address();
-  if (typeof address === 'string' || address === null) throw new Error('sem porta');
-
-  client = new Client({ name: 'vitest', version: '0' });
-  await client.connect(
-    new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${address.port}/mcp`), {
-      requestInit: { headers: { authorization: `Bearer ${TOKEN}` } },
-    }),
-  );
+  h = await startHarness(CAREER_YAML);
 });
 
-afterAll(async () => {
-  await client.close();
-  await new Promise((resolve) => server.close(resolve));
-  await rm(dir, { recursive: true, force: true });
-});
+afterAll(() => h.close());
 
-async function search(name: string, args: Record<string, unknown> = {}): Promise<SearchResult> {
-  const result = await client.callTool({ name, arguments: args });
-  return result.structuredContent as unknown as SearchResult;
-}
+const search = (name: string, args: Record<string, unknown> = {}): Promise<SearchResult> =>
+  h.callTool<SearchResult>(name, args);
 
 function ids(result: SearchResult): unknown[] {
   return result.results.map((item) => item.id ?? item.name);
@@ -102,7 +72,7 @@ function ids(result: SearchResult): unknown[] {
 describe('registro das tools', () => {
   it('expõe as três buscas com annotation de leitura', async () => {
     const names = ['search_experiences', 'search_projects', 'search_skills'];
-    const { tools } = await client.listTools();
+    const { tools } = await h.client.listTools();
     const buscas = tools.filter((t) => names.includes(t.name));
 
     expect(buscas.map((t) => t.name).sort()).toEqual(names);
@@ -183,7 +153,7 @@ describe('search_experiences', () => {
   });
 
   it('rejeita limit fora do intervalo', async () => {
-    const result = await client.callTool({
+    const result = await h.client.callTool({
       name: 'search_experiences',
       arguments: { limit: 0 },
     });
@@ -226,7 +196,7 @@ describe('search_skills', () => {
   });
 
   it('rejeita category fora do enum', async () => {
-    const result = await client.callTool({
+    const result = await h.client.callTool({
       name: 'search_skills',
       arguments: { category: 'inventada' },
     });
@@ -237,7 +207,7 @@ describe('search_skills', () => {
 
 describe('formato da resposta', () => {
   it('manda o mesmo conteúdo em texto e em structuredContent', async () => {
-    const result = await client.callTool({
+    const result = await h.client.callTool({
       name: 'search_experiences',
       arguments: { query: 'backend' },
     });
