@@ -110,6 +110,20 @@ export async function fetchRepos(octokit: Octokit, filter: RepoFilter = {}): Pro
   });
 }
 
+export async function fetchRepo(octokit: Octokit, fullName: string): Promise<Repo> {
+  const [owner, repo] = fullName.split('/');
+  if (owner === undefined || repo === undefined || repo === '') {
+    throw new Error(`Repo inválido: "${fullName}" — use o formato "owner/repo".`);
+  }
+
+  try {
+    const { data } = await octokit.rest.repos.get({ owner, repo });
+    return toRepo(data as unknown as RawRepo);
+  } catch (error) {
+    throw describe(error);
+  }
+}
+
 export async function fetchLanguages(
   octokit: Octokit,
   fullName: string,

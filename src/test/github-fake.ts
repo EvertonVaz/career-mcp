@@ -94,6 +94,18 @@ export async function startFakeGithub(): Promise<FakeGithub> {
       return;
     }
 
+    const single = /^\/repos\/[^/]+\/([^/]+)$/.exec(url.pathname);
+    if (single) {
+      const found = repos.find((repo) => repo.name === single[1]);
+      if (found === undefined) {
+        res.statusCode = 404;
+        res.end(JSON.stringify({ message: 'Not Found' }));
+        return;
+      }
+      res.end(JSON.stringify(expand(found)));
+      return;
+    }
+
     const match = /^\/repos\/([^/]+\/[^/]+)\/languages$/.exec(url.pathname);
     if (match) {
       res.end(JSON.stringify(languages.get(match[1] as string) ?? {}));

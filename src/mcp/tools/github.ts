@@ -1,10 +1,16 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Config } from '../../config.js';
-import { createGithub, fetchRepos, writeRepoCache, type Repo } from '../../lib/github.js';
+import {
+  createGithub,
+  fetchRepo,
+  fetchRepos,
+  writeRepoCache,
+  type Repo,
+} from '../../lib/github.js';
 import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
 import { loadCareer, saveCareer } from '../../lib/loader.js';
-import type { Career } from '../../lib/schema.js';
+import { Project as ProjectSchema, type Career } from '../../lib/schema.js';
 
 type Project = Career['projects'][number];
 
@@ -17,13 +23,13 @@ type Proposal = {
   links: { repo: string; demo?: string };
 };
 
-type Divergence = {
-  repo: string;
-  project_id: string;
+type FieldDivergence = {
   field: string;
   career: string | string[] | null;
   github: string | string[] | null;
 };
+
+type Divergence = FieldDivergence & { repo: string; project_id: string };
 
 /** Nome de repo vira id kebab-case: "Meu.App_2025" -> "meu-app-2025". */
 function slugify(name: string): string {
@@ -91,13 +97,11 @@ function toProject(proposal: Proposal, syncedAt: string): Project {
  * Para projeto que já existe, o GitHub não propõe escrita — o texto que você
  * escreveu vale mais que os metadados do repo. Só aponta o desencontro.
  */
-function findDivergences(project: Project, repo: Repo): Divergence[] {
-  const base = { repo: repo.full_name, project_id: project.id };
-  const divergences: Divergence[] = [];
+function findDivergences(project: Project, repo: Repo): FieldDivergence[] {
+  const divergences: FieldDivergence[] = [];
 
   if (project.links.repo !== repo.html_url) {
     divergences.push({
-      ...base,
       field: 'links.repo',
       career: project.links.repo ?? null,
       github: repo.html_url,
@@ -106,20 +110,49 @@ function findDivergences(project: Project, repo: Repo): Divergence[] {
 
   const demo = homepageOf(repo);
   if (demo !== undefined && project.links.demo !== demo) {
-    divergences.push({
-      ...base,
-      field: 'links.demo',
-      career: project.links.demo ?? null,
-      github: demo,
-    });
+    divergences.push({ field: 'links.demo', career: project.links.demo ?? null, github: demo });
   }
 
-  const language = repo.language;
-  if (language !== null && !project.stack.some((item) => item.toLowerCase() === language.toLowerCase())) {
-    divergences.push({ ...base, field: 'stack', career: project.stack, github: language });
+  if (!hasLanguage(project, repo)) {
+    divergences.push({ field: 'stack', career: project.stack, github: repo.language });
   }
 
   return divergences;
+}
+
+function hasLanguage(project: Project, repo: Repo): boolean {
+  const language = repo.language;
+  if (language === null) return true;
+
+  return project.stack.some((item) => item.toLowerCase() === language.toLowerCase());
+}
+
+/**
+ * O GitHub manda nos metadados do repo (link, linguagem). O texto — problem,
+ * solution, result — é seu e não é tocado. stack só cresce: remover o que você
+ * curou à mão porque o GitHub só reporta a linguagem principal seria perda.
+ */
+function mergeProject(existing: Project, repo: Repo, syncedAt: string, name?: string): Project {
+  const demo = homepageOf(repo) ?? existing.links.demo;
+
+  return {
+    ...existing,
+    ...(name === undefined ? {} : { name }),
+    github_repo: repo.full_name,
+    stack: hasLanguage(existing, repo)
+      ? existing.stack
+      : [...existing.stack, repo.language as string],
+    links: {
+      ...existing.links,
+      repo: repo.html_url,
+      ...(demo === undefined ? {} : { demo }),
+    },
+    provenance: {
+      ...existing.provenance,
+      source_ref: `github:${repo.full_name}`,
+      last_synced_at: syncedAt,
+    },
+  };
 }
 
 const proposalShape = z.object({
@@ -133,13 +166,25 @@ const proposalShape = z.object({
 
 const divergenceValue = z.union([z.string(), z.array(z.string()), z.null()]);
 
-const divergenceShape = z.object({
-  repo: z.string(),
-  project_id: z.string(),
+const fieldDivergenceShape = z.object({
   field: z.string(),
   career: divergenceValue,
   github: divergenceValue,
 });
+
+const divergenceShape = fieldDivergenceShape.extend({
+  repo: z.string(),
+  project_id: z.string(),
+});
+
+const changeShape = z.looseObject({ path: z.string(), kind: z.string() });
+
+function requireToken(config: Config): string {
+  if (config.githubToken === undefined || config.githubToken === '') {
+    throw new Error('GITHUB_TOKEN não configurado — defina no .env antes de sincronizar.');
+  }
+  return config.githubToken;
+}
 
 export function registerGithubTools(server: McpServer, config: Config): void {
   server.registerTool(
@@ -182,7 +227,7 @@ includeArchived. Por padrão ignora fork e arquivado.`,
         proposals: z.array(proposalShape),
         divergences: z.array(divergenceShape),
         added: z.array(z.string()).optional(),
-        changes: z.array(z.looseObject({ path: z.string(), kind: z.string() })).optional(),
+        changes: z.array(changeShape).optional(),
       },
       annotations: {
         readOnlyHint: false,
@@ -193,11 +238,7 @@ includeArchived. Por padrão ignora fork e arquivado.`,
       },
     },
     async ({ since, includeForks, includeArchived, confirm, accept }) => {
-      if (config.githubToken === undefined || config.githubToken === '') {
-        throw new Error('GITHUB_TOKEN não configurado — defina no .env antes de sincronizar.');
-      }
-
-      const octokit = createGithub(config.githubToken, config.githubApiUrl);
+      const octokit = createGithub(requireToken(config), config.githubApiUrl);
       const repos = await fetchRepos(octokit, { since, includeForks, includeArchived });
       const { synced_at } = await writeRepoCache(config.paths.cache, repos);
 
@@ -215,7 +256,15 @@ includeArchived. Por padrão ignora fork e arquivado.`,
       for (const repo of repos) {
         const existing = byRepo.get(repo.full_name);
         if (existing === undefined) proposals.push(toProposal(repo, taken));
-        else divergences.push(...findDivergences(existing, repo));
+        else {
+          divergences.push(
+            ...findDivergences(existing, repo).map((item) => ({
+              ...item,
+              repo: repo.full_name,
+              project_id: existing.id,
+            })),
+          );
+        }
       }
 
       const base = { applied: false, synced_at, scanned: repos.length, proposals, divergences };
@@ -246,6 +295,128 @@ includeArchived. Por padrão ignora fork e arquivado.`,
         added: chosen.map((proposal) => proposal.project_id),
         changes,
       });
+    },
+  );
+
+  server.registerTool(
+    'import_github_repo',
+    {
+      title: 'Importar um repositório do GitHub',
+      description: `Importa um repositório específico como projeto, pelo full_name.
+
+Diferente do sync_github, aqui o repo é escolhido por você: fork e arquivado
+entram normalmente.
+
+Se o projeto ainda não existe (mode: "create"), cria a partir do repo.
+Se já existe (mode: "update"), sobrescreve os campos que são do GitHub e
+lista em divergences[] o que mudou:
+  - links.repo recebe a URL do repo
+  - links.demo recebe a homepage, se houver (homepage vazia não apaga a sua)
+  - stack ganha a linguagem principal, sem perder o que você curou à mão
+Seu texto — problem, solution, result — nunca é tocado, e provenance.verified
+continua como estava.
+
+Sem confirm não escreve: devolve divergences[] e o projeto como ficaria.
+Com confirm: true, tira snapshot em history/ e grava. Se nada mudaria, não
+escreve nem versiona.
+
+asProject: { id, name } ajusta como o projeto entra. O id só vale na criação e
+falha se colidir com projeto existente.`,
+      inputSchema: {
+        repo: z.string().min(1).describe('full_name do repositório, ex: "etovaz/career-mcp".'),
+        asProject: z
+          .object({
+            id: z.string().min(1).optional().describe('Id do projeto. Só na criação.'),
+            name: z.string().min(1).optional().describe('Nome do projeto no portfólio.'),
+          })
+          .optional(),
+        confirm: z
+          .boolean()
+          .default(false)
+          .describe('true grava no career.yml. false só devolve o que faria.'),
+      },
+      outputSchema: {
+        applied: z.boolean(),
+        mode: z.enum(['create', 'update']),
+        repo: z.string(),
+        project_id: z.string(),
+        divergences: z.array(fieldDivergenceShape),
+        project: ProjectSchema,
+        changes: z.array(changeShape).optional(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Em update sobrescreve campo já gravado, e isso não é reversível
+        // sem o history/.
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ repo: fullName, asProject, confirm }) => {
+      const octokit = createGithub(requireToken(config), config.githubApiUrl);
+      const repo = await fetchRepo(octokit, fullName);
+      const syncedAt = new Date().toISOString();
+
+      const career = await loadCareer(config.paths.career);
+      const existing = career.projects.find((project) => project.github_repo === repo.full_name);
+
+      let project: Project;
+      let divergences: FieldDivergence[] = [];
+
+      if (existing === undefined) {
+        const taken = new Set(career.projects.map((item) => item.id));
+        const wanted = asProject?.id;
+
+        if (wanted !== undefined && taken.has(wanted)) {
+          throw new Error(`Já existe projeto com id "${wanted}" — escolha outro id.`);
+        }
+
+        project = toProject(
+          {
+            ...toProposal(repo, taken),
+            ...(wanted === undefined ? {} : { project_id: wanted }),
+            ...(asProject?.name === undefined ? {} : { name: asProject.name }),
+          },
+          syncedAt,
+        );
+      } else {
+        if (asProject?.id !== undefined && asProject.id !== existing.id) {
+          throw new Error(
+            `${repo.full_name} já é o projeto "${existing.id}" — renomear id quebraria as evidências que apontam para ele.`,
+          );
+        }
+        divergences = findDivergences(existing, repo);
+        project = mergeProject(existing, repo, syncedAt, asProject?.name);
+      }
+
+      const mode = existing === undefined ? ('create' as const) : ('update' as const);
+      const base = { applied: false, mode, repo: repo.full_name, project_id: project.id, divergences, project };
+
+      if (!confirm) return respond(base);
+
+      const after: Career = {
+        ...career,
+        projects:
+          existing === undefined
+            ? [...career.projects, project]
+            : career.projects.map((item) => (item.id === project.id ? project : item)),
+      };
+      const changes: Change[] = diffCareer(career, after);
+      if (changes.length === 0) return respond({ ...base, applied: true, changes });
+
+      // Carimbo de sync sozinho não vira snapshot: history serve para recuperar
+      // conteúdo, e não há conteúdo a recuperar de um last_synced_at.
+      const substantive = changes.filter(
+        (change) => !change.path.endsWith('.provenance.last_synced_at'),
+      );
+      if (substantive.length > 0) {
+        await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
+      }
+
+      await saveCareer(config.paths.career, after);
+
+      return respond({ ...base, applied: true, changes });
     },
   );
 }

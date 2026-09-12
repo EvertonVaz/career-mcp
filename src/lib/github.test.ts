@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   createGithub,
   fetchLanguages,
+  fetchRepo,
   fetchRepos,
   readRepoCache,
   writeRepoCache,
@@ -125,6 +126,34 @@ describe('fetchRepos', () => {
     github.failWith(403, { message: 'API rate limit exceeded' });
 
     await expect(fetchRepos(client())).rejects.toThrow(/rate limit/i);
+  });
+});
+
+describe('fetchRepo', () => {
+  it('busca um repo pelo full_name', async () => {
+    github.setRepos([{ name: 'career-mcp', language: 'TypeScript' }]);
+
+    expect(await fetchRepo(client(), 'etovaz/career-mcp')).toMatchObject({
+      full_name: 'etovaz/career-mcp',
+      language: 'TypeScript',
+    });
+  });
+
+  it('traz fork e archived sem filtrar, porque o pedido foi explícito', async () => {
+    github.setRepos([{ name: 'forkado', fork: true, archived: true }]);
+
+    expect(await fetchRepo(client(), 'etovaz/forkado')).toMatchObject({
+      fork: true,
+      archived: true,
+    });
+  });
+
+  it('explica repo inexistente', async () => {
+    await expect(fetchRepo(client(), 'etovaz/nao-existe')).rejects.toThrow(/não encontrado/i);
+  });
+
+  it('recusa full_name mal formado', async () => {
+    await expect(fetchRepo(client(), 'career-mcp')).rejects.toThrow(/owner\/repo/);
   });
 });
 
