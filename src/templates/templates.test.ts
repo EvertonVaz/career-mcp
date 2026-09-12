@@ -101,6 +101,23 @@ describe('renderResume', () => {
     expect(renderResume(career())).toContain('- Migrou a API para TypeScript');
   });
 
+  it('rotula problema, solução e resultado igual ao portfólio', () => {
+    const resume = renderResume(career());
+
+    expect(resume).toContain('**Problema.** Canais desencontrados');
+    expect(resume).toContain('**Solução.** Servidor MCP sobre YAML');
+    expect(resume).toContain('**Resultado.** Coerência entre canais');
+    expect(resume).toContain('**Stack:** TypeScript, Node');
+    expect(resume).toContain('**Repo:** https://github.com/etovaz/career-mcp');
+  });
+
+  it('omite o rótulo do campo que o projeto não tem', () => {
+    const resume = renderResume(career());
+
+    // O projeto "Portfólio" só tem stack.
+    expect(resume).toContain('### Portfólio\n**Stack:** Astro');
+  });
+
   it('agrupa skills por categoria', () => {
     const resume = renderResume(career());
 

@@ -64,11 +64,12 @@ export function renderResume(career: Career): string {
       'Projetos',
       career.projects.flatMap((project) => [
         `### ${project.name}`,
-        ...[project.problem, project.solution, project.result]
-          .filter((value): value is string => value !== undefined)
-          .map((value) => value),
-        ...(project.stack.length === 0 ? [] : [`Stack: ${project.stack.join(', ')}`]),
-        ...(project.links.repo === undefined ? [] : [project.links.repo]),
+        // Mesmos rótulos do portfólio: sem eles as três linhas ficam ambíguas.
+        ...(project.problem === undefined ? [] : [`**Problema.** ${project.problem}`]),
+        ...(project.solution === undefined ? [] : [`**Solução.** ${project.solution}`]),
+        ...(project.result === undefined ? [] : [`**Resultado.** ${project.result}`]),
+        ...(project.stack.length === 0 ? [] : [`**Stack:** ${project.stack.join(', ')}`]),
+        ...(project.links.repo === undefined ? [] : [`**Repo:** ${project.links.repo}`]),
         '',
       ]),
     ),
