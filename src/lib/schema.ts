@@ -43,6 +43,17 @@ export function toIsoDate(date: string): string {
   return `${year}-${month}-${day}`;
 }
 
+/** "01/03/2023" -> "03/2023", a granularidade que currículo e LinkedIn usam. */
+export function toMonthYear(date: string): string {
+  const [, month, year] = date.split('/');
+  return `${month}/${year}`;
+}
+
+/** "03/2023 – atual" ou "02/2021 – 02/2023". */
+export function formatPeriod(start: string, end: string | null): string {
+  return `${toMonthYear(start)} – ${end === null ? 'atual' : toMonthYear(end)}`;
+}
+
 /** "owner/repo" */
 export const RepoSlug = z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'use "owner/repo"');
 

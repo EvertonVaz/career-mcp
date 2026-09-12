@@ -15,6 +15,7 @@ export type Harness = {
   careerPath: string;
   historyDir: string;
   cacheDir: string;
+  outputDir: string;
   writeCareer(yaml: string): Promise<void>;
   removeCareer(): Promise<void>;
   readCareer(): Promise<string>;
@@ -42,6 +43,7 @@ export async function startHarness(
       CAREER_DATA_DIR: dir,
       CAREER_HISTORY_DIR: path.join(dir, 'history'),
       CAREER_CACHE_DIR: path.join(dir, 'cache'),
+      CAREER_OUTPUT_DIR: path.join(dir, 'output'),
       ...env,
     }),
   );
@@ -64,6 +66,7 @@ export async function startHarness(
     careerPath,
     historyDir: path.join(dir, 'history'),
     cacheDir: path.join(dir, 'cache'),
+    outputDir: path.join(dir, 'output'),
 
     writeCareer: (yaml) => writeFile(careerPath, yaml),
 

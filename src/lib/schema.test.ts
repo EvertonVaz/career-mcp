@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CareerFile, toIsoDate, toSortable } from './schema.js';
+import { CareerFile, formatPeriod, toIsoDate, toMonthYear, toSortable } from './schema.js';
 
 /** Career mínimo válido; cada teste sobrescreve só o que interessa. */
 function career(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -32,6 +32,17 @@ describe('toIsoDate', () => {
   it('converte para o formato que a API do GitHub entende', () => {
     expect(toIsoDate('01/03/2023')).toBe('2023-03-01');
     expect(toIsoDate('31/12/2020')).toBe('2020-12-31');
+  });
+});
+
+describe('toMonthYear e formatPeriod', () => {
+  it('reduz para mês/ano', () => {
+    expect(toMonthYear('01/03/2023')).toBe('03/2023');
+  });
+
+  it('usa "atual" quando não há fim', () => {
+    expect(formatPeriod('01/03/2023', null)).toBe('03/2023 – atual');
+    expect(formatPeriod('01/02/2021', '28/02/2023')).toBe('02/2021 – 02/2023');
   });
 });
 
