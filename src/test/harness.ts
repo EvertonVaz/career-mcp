@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -13,8 +13,11 @@ export type Harness = {
   client: Client;
   dir: string;
   careerPath: string;
+  historyDir: string;
+  cacheDir: string;
   writeCareer(yaml: string): Promise<void>;
   removeCareer(): Promise<void>;
+  readCareer(): Promise<string>;
   readResource(uri: string): Promise<unknown>;
   callTool<T>(name: string, args?: Record<string, unknown>): Promise<T>;
   close(): Promise<void>;
@@ -25,12 +28,23 @@ export type Harness = {
  * conecta o client oficial do SDK. Testar contra a implementação de referência
  * pega divergência de protocolo que JSON-RPC na mão deixaria passar.
  */
-export async function startHarness(careerYaml?: string): Promise<Harness> {
+export async function startHarness(
+  careerYaml?: string,
+  env: Record<string, string | undefined> = {},
+): Promise<Harness> {
   const dir = await mkdtemp(path.join(tmpdir(), 'career-'));
   const careerPath = path.join(dir, 'career.yml');
   if (careerYaml !== undefined) await writeFile(careerPath, careerYaml);
 
-  const app = createApp(loadConfig({ MCP_AUTH_TOKEN: TOKEN, CAREER_DATA_DIR: dir }));
+  const app = createApp(
+    loadConfig({
+      MCP_AUTH_TOKEN: TOKEN,
+      CAREER_DATA_DIR: dir,
+      CAREER_HISTORY_DIR: path.join(dir, 'history'),
+      CAREER_CACHE_DIR: path.join(dir, 'cache'),
+      ...env,
+    }),
+  );
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
 
@@ -48,10 +62,14 @@ export async function startHarness(careerYaml?: string): Promise<Harness> {
     client,
     dir,
     careerPath,
+    historyDir: path.join(dir, 'history'),
+    cacheDir: path.join(dir, 'cache'),
 
     writeCareer: (yaml) => writeFile(careerPath, yaml),
 
     removeCareer: () => rm(careerPath),
+
+    readCareer: () => readFile(careerPath, 'utf8'),
 
     async readResource(uri) {
       const [content] = (await client.readResource({ uri })).contents;

@@ -67,4 +67,11 @@ describe('loadConfig', () => {
   it('deixa githubToken indefinido quando ausente', () => {
     expect(loadConfig(MINIMAL).githubToken).toBeUndefined();
   });
+
+  it('deixa githubApiUrl indefinido para usar github.com', () => {
+    expect(loadConfig(MINIMAL).githubApiUrl).toBeUndefined();
+    expect(loadConfig({ ...MINIMAL, GITHUB_API_URL: 'http://local' }).githubApiUrl).toBe(
+      'http://local',
+    );
+  });
 });

@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../config.js';
 import { registerCareerResources } from './resources/career.js';
 import { registerCareerReadTools } from './tools/career-read.js';
+import { registerGithubTools } from './tools/github.js';
 import { registerValidateTool } from './tools/validate.js';
 
 /**
@@ -18,6 +19,7 @@ export function createMcpServer(config: Config): McpServer {
   registerCareerResources(server, config);
   registerCareerReadTools(server, config);
   registerValidateTool(server, config);
+  registerGithubTools(server, config);
 
   return server;
 }

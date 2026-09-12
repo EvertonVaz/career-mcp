@@ -7,6 +7,8 @@ export type Config = {
   /** SHA-256 do MCP_AUTH_TOKEN. O token cru nunca é guardado. */
   readonly authTokenHash: Buffer;
   readonly githubToken: string | undefined;
+  /** Base da API do GitHub. Só muda para GitHub Enterprise ou em teste. */
+  readonly githubApiUrl: string | undefined;
   readonly paths: {
     readonly data: string;
     readonly career: string;
@@ -48,6 +50,7 @@ export function loadConfig(env: Env = process.env): Config {
     host: env.MCP_HOST ?? '0.0.0.0',
     authTokenHash: createHash('sha256').update(required(env, 'MCP_AUTH_TOKEN')).digest(),
     githubToken: env.GITHUB_TOKEN,
+    githubApiUrl: env.GITHUB_API_URL,
     paths: {
       data: dataDir,
       career: path.join(dataDir, 'career.yml'),
