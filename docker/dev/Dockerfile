@@ -50,6 +50,6 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 
 COPY ./scripts/.zshrc /home/${USER_NAME}/.zshrc
 
-WORKDIR /src
+WORKDIR /home/etovaz/documentos/career-mcp
 
 CMD ["/start/start.sh"]

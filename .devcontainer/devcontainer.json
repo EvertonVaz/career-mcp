@@ -1,24 +1,17 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
 // https://github.com/microsoft/vscode-dev-containers/tree/v0.245.2/containers/docker-existing-docker-compose
-// If you want to run as a non-root user in the container, see .devcontainer/docker-compose.yml.
 {
-	"name": "Portfolio",
+	"name": "career-mcp",
 
-	// Update the 'dockerComposeFile' list if you have more compose files or use different names.
-	// The .devcontainer/docker-compose.yml file contains any overrides you need/want to make.
-	"dockerComposeFile": [
-		"../docker-compose.yml",
-		"docker-compose.yml"
-	],
+	"dockerComposeFile": "../docker-compose.yml",
 
-	// The 'service' property is the name of the service for the container that VS Code should
-	// use. Update this value and .devcontainer/docker-compose.yml to the real service name.
+	// The 'service' property is the name of the service for the container that VS Code should use.
 	"service": "dev",
 	"remoteUser": "etovaz",
 
 	// The optional 'workspaceFolder' property is the path VS Code should open by default when
-	// connected. This is typically a file mount in .devcontainer/docker-compose.yml
-	"workspaceFolder": "/src",
+	// connected. This matches the bind mount in ../docker-compose.yml
+	"workspaceFolder": "/home/etovaz/documentos/career-mcp",
 	"customizations": {
 		"vscode": {
 			"extensions": [

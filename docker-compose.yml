@@ -12,9 +12,11 @@ services:
     volumes:
       - ${HOME}/.p10k.zsh:/home/etovaz/.p10k.zsh
       - ${HOME}/.zsh_history:/home/etovaz/.zsh_history
-      - ./:/src
+      - ./:/home/etovaz/documentos/career-mcp
       - ${HOME}/.claude:/home/etovaz/.claude
       - ${HOME}/.claude.json:/home/etovaz/.claude.json
       - ${HOME}/.config/anthropic:/home/etovaz/.config/anthropic
       - ${HOME}/.config/gh:/home/etovaz/.config/gh
       - ${HOME}/.ssh:/home/etovaz/.ssh
+      - ${HOME}/.local/share/mise/installs/github-akitaonrails-ai-memory:/home/etovaz/.local/share/mise/installs/github-akitaonrails-ai-memory:ro
+      - ${HOME}/.local/share/ai-memory:/home/etovaz/.local/share/ai-memory
