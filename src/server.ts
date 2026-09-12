@@ -1,6 +1,14 @@
 import { loadConfig } from './config.js';
 import { createApp } from './http/app.js';
 
+try {
+  // Node lê .env nativamente. Em container não existe arquivo: o Coolify
+  // injeta as vars direto no ambiente, então a ausência não é erro.
+  process.loadEnvFile();
+} catch {
+  // segue com o que já estiver em process.env
+}
+
 const config = loadConfig();
 
 const server = createApp(config).listen(config.port, config.host, () => {

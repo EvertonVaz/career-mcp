@@ -22,6 +22,21 @@ describe('loadConfig', () => {
     expect(config.paths.history).toBe('/app/history');
   });
 
+  it('respeita MCP_HOST', () => {
+    expect(loadConfig({ ...MINIMAL, MCP_HOST: '127.0.0.1' }).host).toBe('127.0.0.1');
+  });
+
+  it('respeita CAREER_HISTORY_DIR e CAREER_OUTPUT_DIR', () => {
+    const config = loadConfig({
+      ...MINIMAL,
+      CAREER_HISTORY_DIR: './history',
+      CAREER_OUTPUT_DIR: './output',
+    });
+
+    expect(config.paths.history).toBe('./history');
+    expect(config.paths.output).toBe('./output');
+  });
+
   it('respeita MCP_PORT e CAREER_DATA_DIR', () => {
     const config = loadConfig({ ...MINIMAL, MCP_PORT: '8080', CAREER_DATA_DIR: './data' });
 

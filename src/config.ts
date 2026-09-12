@@ -44,7 +44,7 @@ export function loadConfig(env: Env = process.env): Config {
   return {
     port: parsePort(env.MCP_PORT),
     // 0.0.0.0 para o Traefik do Coolify alcançar o container.
-    host: '0.0.0.0',
+    host: env.MCP_HOST ?? '0.0.0.0',
     authTokenHash: createHash('sha256').update(required(env, 'MCP_AUTH_TOKEN')).digest(),
     githubToken: env.GITHUB_TOKEN,
     paths: {
