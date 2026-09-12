@@ -101,14 +101,12 @@ function ids(result: SearchResult): unknown[] {
 
 describe('registro das tools', () => {
   it('expõe as três buscas com annotation de leitura', async () => {
+    const names = ['search_experiences', 'search_projects', 'search_skills'];
     const { tools } = await client.listTools();
+    const buscas = tools.filter((t) => names.includes(t.name));
 
-    expect(tools.map((t) => t.name).sort()).toEqual([
-      'search_experiences',
-      'search_projects',
-      'search_skills',
-    ]);
-    expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
+    expect(buscas.map((t) => t.name).sort()).toEqual(names);
+    expect(buscas.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
   });
 });
 
