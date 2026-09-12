@@ -8,4 +8,6 @@ export default defineConfig({
   outDir: 'dist',
   sourcemap: true,
   clean: true,
+  // Deps ficam externas: bundlar express quebra em `require` dinâmico
+  // (body-parser -> debug -> tty). O runtime instala node_modules de produção.
 });

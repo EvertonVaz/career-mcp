@@ -1,0 +1,12 @@
+node_modules
+dist
+data
+history
+output
+.git
+.env
+.devcontainer
+docker
+docker-compose.yml
+plan.md
+**/*.test.ts
