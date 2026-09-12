@@ -3,6 +3,7 @@ dist
 data
 history
 output
+cache
 .git
 .env
 .devcontainer

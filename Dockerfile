@@ -31,7 +31,7 @@ COPY package.json ./
 
 # Pontos de montagem dos volumes do Coolify. Criados aqui para existirem com o
 # dono certo mesmo antes do primeiro mount.
-RUN mkdir -p /app/data /app/history /app/output && chown -R node:node /app
+RUN mkdir -p /app/data /app/history /app/output /app/cache && chown -R node:node /app
 
 USER node
 

@@ -5,6 +5,7 @@ dist/
 data/
 history/
 output/
+cache/
 
 .env
 *.log

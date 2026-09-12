@@ -37,6 +37,10 @@ describe('loadConfig', () => {
     expect(config.paths.output).toBe('./output');
   });
 
+  it('respeita CAREER_CACHE_DIR', () => {
+    expect(loadConfig({ ...MINIMAL, CAREER_CACHE_DIR: './cache' }).paths.cache).toBe('./cache');
+  });
+
   it('respeita MCP_PORT e CAREER_DATA_DIR', () => {
     const config = loadConfig({ ...MINIMAL, MCP_PORT: '8080', CAREER_DATA_DIR: './data' });
 
