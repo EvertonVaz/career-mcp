@@ -25,7 +25,7 @@ export function createApp(config: Config): Express {
 
   // Sobra POST (JSON-RPC) e DELETE (no-op em stateless), ambos do transport.
   app.all('/mcp', async (req, res) => {
-    const server = createMcpServer();
+    const server = createMcpServer(config);
     const transport = createTransport();
 
     res.on('close', () => {

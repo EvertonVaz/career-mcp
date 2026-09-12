@@ -96,10 +96,15 @@ describe('/mcp', () => {
     expect(response.headers.get('mcp-session-id')).toBeNull();
   });
 
-  it('não anuncia capability que ainda não existe', async () => {
+  it('anuncia só as capabilities que existem de fato', async () => {
     const response = await rpc('initialize', INITIALIZE_PARAMS);
 
-    expect((await body(response)).result?.capabilities).toEqual({});
+    const capabilities = (await body(response)).result?.capabilities;
+    // resources vieram na Fase 2; tools e prompts ainda não existem, e
+    // anunciar o que não existe faz o cliente chamar método que dá -32601.
+    expect(capabilities).toHaveProperty('resources');
+    expect(capabilities).not.toHaveProperty('tools');
+    expect(capabilities).not.toHaveProperty('prompts');
   });
 
   it('responde ping', async () => {
