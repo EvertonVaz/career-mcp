@@ -130,6 +130,14 @@ describe('add_experience', () => {
     expect(JSON.stringify(result.content)).toMatch(/DD\/MM\/YYYY/);
   });
 
+  it('já recusa no preview, sem esperar o confirm', async () => {
+    const result = await raw('add_experience', {
+      experience: { ...NOVA, id: 'acme-2023' },
+    });
+
+    expect(result.isError).toBe(true);
+  });
+
   it('recusa end anterior a start', async () => {
     const result = await raw('add_experience', {
       experience: { ...NOVA, start: '01/02/2023', end: '01/02/2021' },

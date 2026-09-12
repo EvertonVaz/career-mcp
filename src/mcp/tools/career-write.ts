@@ -2,10 +2,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Config } from '../../config.js';
 import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
-import { loadCareer, saveCareer } from '../../lib/loader.js';
-import { BrDate, Id, type Career } from '../../lib/schema.js';
+import { loadCareer, saveCareer, validateCareer } from '../../lib/loader.js';
+import { BrDate, Evidence, Id, RepoSlug, SkillCategory, type Career } from '../../lib/schema.js';
 
 type Experience = Career['experiences'][number];
+type Project = Career['projects'][number];
+type Skill = Career['skills'][number];
 
 /**
  * Todo write passa por aqui: carrega, aplica a mutação, calcula o diff e só
@@ -17,7 +19,9 @@ async function runWrite(
   mutate: (career: Career) => Career,
 ): Promise<{ applied: boolean; changes: Change[] }> {
   const career = await loadCareer(config.paths.career);
-  const after = mutate(career);
+  // Valida antes de decidir escrever: senão o preview diria "ok" e o confirm
+  // falharia depois. Também aplica os defaults, então o diff mostra o estado final.
+  const after = validateCareer(config.paths.career, mutate(career));
   const changes = diffCareer(career, after);
 
   if (!confirm || changes.length === 0) return { applied: false, changes };
@@ -57,6 +61,24 @@ const experienceFields = {
   tech: z.array(z.string().min(1)),
 };
 
+/** Campos de projeto que você controla; provenance é do servidor. */
+const projectFields = {
+  name: z.string().min(1),
+  github_repo: RepoSlug,
+  problem: z.string().min(1),
+  solution: z.string().min(1),
+  result: z.string().min(1),
+  stack: z.array(z.string().min(1)),
+  links: z.object({ repo: z.url().optional(), demo: z.url().optional() }),
+  images: z.array(z.object({ url: z.url(), alt: z.string().min(1) })),
+  highlight: z.boolean(),
+};
+
+const skillFields = {
+  category: SkillCategory,
+  evidence: z.array(Evidence),
+};
+
 function optional<T extends Record<string, z.ZodTypeAny>>(shape: T) {
   return Object.fromEntries(
     Object.entries(shape).map(([key, schema]) => [key, schema.optional()]),
@@ -74,6 +96,15 @@ function requireFreeId(items: { id: string }[], id: string, collection: string):
   if (items.some((item) => item.id === id)) {
     throw new Error(`Já existe ${collection} com id "${id}" — escolha outro.`);
   }
+}
+
+function findSkill(career: Career, name: string): Skill {
+  const found = career.skills.find(
+    (skill) => skill.name.toLowerCase() === name.toLowerCase(),
+  );
+  if (found === undefined) throw new Error(`Skill "${name}" não existe no career.yml.`);
+
+  return found;
 }
 
 /** Remover algo que uma skill cita como evidência invalidaria o arquivo. */
@@ -212,4 +243,286 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
       );
     },
   );
+
+  server.registerTool(
+    'add_project',
+    {
+      title: 'Adicionar projeto',
+      description: `Adiciona um projeto ao career.yml.
+
+problem, solution e result são o que transforma repositório em case — o
+validate_all cobra os três. Entra com provenance.verified = false.
+
+Sem confirm, devolve só o diff do que faria.`,
+      inputSchema: {
+        project: z
+          .object({ id: Id, ...optional(projectFields) })
+          .extend({ name: projectFields.name }),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ project, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          requireFreeId(career.projects, project.id, 'projeto');
+
+          const novo = {
+            ...project,
+            stack: project.stack ?? [],
+            links: project.links ?? {},
+            images: project.images ?? [],
+            highlight: project.highlight ?? false,
+            provenance: { verified: false, source: 'manual' as const },
+          } as Project;
+
+          return { ...career, projects: [...career.projects, novo] };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'update_project',
+    {
+      title: 'Atualizar projeto',
+      description: `Aplica um patch parcial num projeto existente.
+
+Só os campos enviados mudam. Arrays (stack, images) são substituídos
+inteiros. provenance.verified é preservado.
+
+Sem confirm, devolve só o diff.`,
+      inputSchema: {
+        id: Id.describe('Id do projeto a atualizar.'),
+        patch: z.object(optional(projectFields)),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, patch, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          find(career.projects, id, 'Projeto');
+
+          return {
+            ...career,
+            projects: career.projects.map((project) =>
+              project.id === id ? ({ ...project, ...patch } as Project) : project,
+            ),
+          };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'delete_project',
+    {
+      title: 'Remover projeto',
+      description: `Remove um projeto do career.yml.
+
+Recusa se alguma skill citar esse projeto como evidência. Tire a evidência
+primeiro.
+
+Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+      inputSchema: { id: Id.describe('Id do projeto a remover.'), confirm: confirmInput },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          find(career.projects, id, 'Projeto');
+          requireNoEvidence(career, 'project', id);
+
+          return { ...career, projects: career.projects.filter((project) => project.id !== id) };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'add_skill',
+    {
+      title: 'Adicionar skill',
+      description: `Adiciona uma skill ao career.yml. O nome é a chave: não há id.
+
+evidence aponta para o que sustenta a skill. Os tipos experience, project,
+education e certification precisam apontar para um id que existe; repo e
+external não são checados aqui.
+
+Skill sem evidência é aceita, mas o validate_all vai cobrar.
+Entra com provenance.verified = false.`,
+      inputSchema: {
+        skill: z
+          .object({ name: z.string().min(1), ...optional(skillFields) })
+          .extend({ category: skillFields.category }),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ skill, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          if (career.skills.some((item) => item.name.toLowerCase() === skill.name.toLowerCase())) {
+            throw new Error(`Já existe skill "${skill.name}" — use update_skill.`);
+          }
+
+          const nova = {
+            ...skill,
+            evidence: skill.evidence ?? [],
+            provenance: { verified: false, source: 'manual' as const },
+          } as Skill;
+
+          return { ...career, skills: [...career.skills, nova] };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'update_skill',
+    {
+      title: 'Atualizar skill',
+      description: `Aplica um patch parcial numa skill existente, achada pelo nome
+(ignorando maiúsculas).
+
+evidence é substituída inteira, não mesclada. provenance.verified é
+preservado.
+
+Sem confirm, devolve só o diff.`,
+      inputSchema: {
+        name: z.string().min(1).describe('Nome da skill a atualizar.'),
+        patch: z.object(optional(skillFields)),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ name, patch, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          const alvo = findSkill(career, name);
+
+          return {
+            ...career,
+            skills: career.skills.map((skill) =>
+              skill.name === alvo.name ? ({ ...skill, ...patch } as Skill) : skill,
+            ),
+          };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'mark_verified',
+    {
+      title: 'Marcar como verificado',
+      description: `Vira o provenance.verified de uma entidade.
+
+É o passo que separa sugestão de fato: tudo entra como false, inclusive o que
+você digita, e só vira true aqui, depois de você conferir.
+
+kind: experience, project, skill, education ou certification.
+id: o id da entidade; para skill, o nome.
+verified: padrão true; mande false para desmarcar.
+
+Não versiona quando a entidade já está no estado pedido.`,
+      inputSchema: {
+        kind: z.enum(['experience', 'project', 'skill', 'education', 'certification']),
+        id: z.string().min(1).describe('Id da entidade. Para skill, o nome.'),
+        verified: z.boolean().default(true),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ kind, id, verified, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          const stamp = <T extends { provenance: { verified: boolean } }>(item: T): T => ({
+            ...item,
+            provenance: { ...item.provenance, verified },
+          });
+
+          // Switch explícito em vez de montar o nome da coleção: cada ramo é
+          // uma linha e o tipo fica óbvio.
+          switch (kind) {
+            case 'skill': {
+              const alvo = findSkill(career, id);
+              return {
+                ...career,
+                skills: career.skills.map((item) =>
+                  item.name === alvo.name ? stamp(item) : item,
+                ),
+              };
+            }
+            case 'experience':
+              find(career.experiences, id, 'Experiência');
+              return {
+                ...career,
+                experiences: career.experiences.map((item) =>
+                  item.id === id ? stamp(item) : item,
+                ),
+              };
+            case 'project':
+              find(career.projects, id, 'Projeto');
+              return {
+                ...career,
+                projects: career.projects.map((item) => (item.id === id ? stamp(item) : item)),
+              };
+            case 'education':
+              find(career.education, id, 'Formação');
+              return {
+                ...career,
+                education: career.education.map((item) => (item.id === id ? stamp(item) : item)),
+              };
+            case 'certification':
+              find(career.certifications, id, 'Certificação');
+              return {
+                ...career,
+                certifications: career.certifications.map((item) =>
+                  item.id === id ? stamp(item) : item,
+                ),
+              };
+          }
+        }),
+      );
+    },
+  );
 }
+

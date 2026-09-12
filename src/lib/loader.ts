@@ -40,11 +40,16 @@ async function readYaml(filePath: string): Promise<unknown> {
   }
 }
 
-export async function loadCareer(filePath: string): Promise<Career> {
-  const result = CareerFile.safeParse(await readYaml(filePath));
+/** Valida e devolve com os defaults aplicados, ou estoura com as issues. */
+export function validateCareer(filePath: string, value: unknown): Career {
+  const result = CareerFile.safeParse(value);
   if (!result.success) throw new CareerValidationError(filePath, toIssues(result.error));
 
   return result.data;
+}
+
+export async function loadCareer(filePath: string): Promise<Career> {
+  return validateCareer(filePath, await readYaml(filePath));
 }
 
 /** private.yml é opcional — ausência não é erro. */
@@ -86,12 +91,11 @@ async function writeAtomic(filePath: string, content: string): Promise<void> {
 }
 
 export async function saveCareer(filePath: string, career: Career): Promise<Career> {
-  const result = CareerFile.safeParse(career);
-  if (!result.success) throw new CareerValidationError(filePath, toIssues(result.error));
+  const validated = validateCareer(filePath, career);
 
   const stamped: Career = {
-    ...result.data,
-    meta: { ...result.data.meta, updated_at: new Date().toISOString() },
+    ...validated,
+    meta: { ...validated.meta, updated_at: new Date().toISOString() },
   };
 
   // lineWidth 0 desliga o dobramento de linha: bullet longo quebrado em duas
