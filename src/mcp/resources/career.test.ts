@@ -53,10 +53,11 @@ beforeEach(() => h.writeCareer(CAREER_YAML));
 const read = (uri: string): Promise<unknown> => h.readResource(uri);
 
 describe('resources career://', () => {
-  it('lista os sete resources de leitura', async () => {
+  it('lista as sete fatias de career://', async () => {
     const { resources } = await h.client.listResources();
+    const career = resources.filter((r) => r.uri.startsWith('career://'));
 
-    expect(resources.map((r) => r.uri).sort()).toEqual([
+    expect(career.map((r) => r.uri).sort()).toEqual([
       'career://certifications',
       'career://education',
       'career://experiences',

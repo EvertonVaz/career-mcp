@@ -179,7 +179,7 @@ const divergenceShape = fieldDivergenceShape.extend({
 
 const changeShape = z.looseObject({ path: z.string(), kind: z.string() });
 
-function requireToken(config: Config): string {
+export function requireToken(config: Config): string {
   if (config.githubToken === undefined || config.githubToken === '') {
     throw new Error('GITHUB_TOKEN não configurado — defina no .env antes de sincronizar.');
   }
