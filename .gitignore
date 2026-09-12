@@ -1,0 +1,10 @@
+node_modules/
+dist/
+
+# Volumes do container. Os dados reais vivem no homelab, versionados à parte.
+data/
+history/
+output/
+
+.env
+*.log
