@@ -9,7 +9,7 @@ type Slice = {
   select: (career: Career) => unknown;
 };
 
-/** As cinco fatias de leitura previstas no plano. */
+/** Fatias de leitura expostas como resource. */
 const SLICES: Slice[] = [
   {
     name: 'profile',
@@ -35,6 +35,16 @@ const SLICES: Slice[] = [
     name: 'education',
     description: 'Formação acadêmica.',
     select: (career) => career.education,
+  },
+  {
+    name: 'certifications',
+    description: 'Certificações, com emissor, data e link da credencial.',
+    select: (career) => career.certifications,
+  },
+  {
+    name: 'languages',
+    description: 'Idiomas e nível (CEFR ou nativo).',
+    select: (career) => career.languages,
   },
 ];
 

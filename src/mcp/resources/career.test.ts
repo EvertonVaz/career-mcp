@@ -36,6 +36,16 @@ education:
     degree: Tecnólogo
     start: 01/02/2018
     end: 01/12/2020
+certifications:
+  - id: aws-saa
+    name: AWS Solutions Architect Associate
+    issuer: AWS
+    issued_at: 01/09/2024
+languages:
+  - name: Português
+    level: native
+  - name: Inglês
+    level: B2
 `;
 
 let dir: string;
@@ -80,12 +90,14 @@ async function read(uri: string): Promise<unknown> {
 }
 
 describe('resources career://', () => {
-  it('lista os cinco resources de leitura', async () => {
+  it('lista os sete resources de leitura', async () => {
     const { resources } = await client.listResources();
 
     expect(resources.map((r) => r.uri).sort()).toEqual([
+      'career://certifications',
       'career://education',
       'career://experiences',
+      'career://languages',
       'career://profile',
       'career://projects',
       'career://skills',
@@ -121,6 +133,23 @@ describe('resources career://', () => {
     expect((await read('career://projects')) as unknown[]).toHaveLength(1);
     expect((await read('career://skills')) as unknown[]).toHaveLength(1);
     expect((await read('career://education')) as unknown[]).toHaveLength(1);
+  });
+
+  it('lê certifications e languages', async () => {
+    expect(await read('career://certifications')).toEqual([
+      {
+        id: 'aws-saa',
+        name: 'AWS Solutions Architect Associate',
+        issuer: 'AWS',
+        issued_at: '01/09/2024',
+        expires_at: null,
+        provenance: { verified: false, source: 'manual' },
+      },
+    ]);
+    expect(await read('career://languages')).toEqual([
+      { name: 'Português', level: 'native' },
+      { name: 'Inglês', level: 'B2' },
+    ]);
   });
 
   it('reflete alteração no arquivo sem reiniciar o servidor', async () => {

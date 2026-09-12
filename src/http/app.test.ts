@@ -100,10 +100,10 @@ describe('/mcp', () => {
     const response = await rpc('initialize', INITIALIZE_PARAMS);
 
     const capabilities = (await body(response)).result?.capabilities;
-    // resources vieram na Fase 2; tools e prompts ainda não existem, e
+    // resources e tools vieram na Fase 2; prompts ainda não existem, e
     // anunciar o que não existe faz o cliente chamar método que dá -32601.
     expect(capabilities).toHaveProperty('resources');
-    expect(capabilities).not.toHaveProperty('tools');
+    expect(capabilities).toHaveProperty('tools');
     expect(capabilities).not.toHaveProperty('prompts');
   });
 

@@ -120,10 +120,19 @@ export const Project = z.strictObject({
   provenance: Provenance.prefault({}),
 });
 
+export const SkillCategory = z.enum([
+  'language',
+  'framework',
+  'tool',
+  'platform',
+  'practice',
+  'soft',
+]);
+
 export const Skill = z.strictObject({
   /** O nome é a chave — skills não têm id próprio. */
   name: z.string().min(1),
-  category: z.enum(['language', 'framework', 'tool', 'platform', 'practice', 'soft']),
+  category: SkillCategory,
   evidence: z.array(Evidence).default([]),
   provenance: Provenance.prefault({}),
 });

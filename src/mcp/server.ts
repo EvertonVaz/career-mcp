@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../config.js';
 import { registerCareerResources } from './resources/career.js';
+import { registerCareerReadTools } from './tools/career-read.js';
 
 /**
  * Factory, não singleton: em modo stateless cada requisição recebe um
@@ -14,6 +15,7 @@ export function createMcpServer(config: Config): McpServer {
   const server = new McpServer({ name: 'career-mcp-server', version: '0.1.0' });
 
   registerCareerResources(server, config);
+  registerCareerReadTools(server, config);
 
   return server;
 }
