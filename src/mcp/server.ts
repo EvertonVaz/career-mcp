@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Config } from '../config.js';
+import { registerPrompts } from './prompts/index.js';
 import { registerCareerResources } from './resources/career.js';
 import { registerGithubResources } from './resources/github.js';
 import { registerOutputResources } from './resources/output.js';
@@ -9,6 +10,7 @@ import { registerGithubTools, requireToken } from './tools/github.js';
 import { registerGithubActivityTool } from './tools/github-activity.js';
 import { registerGeneratorTools } from './tools/generators.js';
 import { registerGithubSuggestTools } from './tools/github-suggest.js';
+import { registerTailorTool } from './tools/tailor.js';
 import { registerValidateTool } from './tools/validate.js';
 
 /**
@@ -32,6 +34,8 @@ export function createMcpServer(config: Config): McpServer {
   registerGithubSuggestTools(server, config, requireToken);
   registerGithubActivityTool(server, config, requireToken);
   registerGeneratorTools(server, config);
+  registerTailorTool(server, config);
+  registerPrompts(server);
 
   return server;
 }

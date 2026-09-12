@@ -100,11 +100,11 @@ describe('/mcp', () => {
     const response = await rpc('initialize', INITIALIZE_PARAMS);
 
     const capabilities = (await body(response)).result?.capabilities;
-    // resources e tools vieram na Fase 2; prompts ainda não existem, e
-    // anunciar o que não existe faz o cliente chamar método que dá -32601.
+    // As três vêm do que foi registrado, não de uma lista fixa: anunciar
+    // capability que não existe faz o cliente chamar método que dá -32601.
     expect(capabilities).toHaveProperty('resources');
     expect(capabilities).toHaveProperty('tools');
-    expect(capabilities).not.toHaveProperty('prompts');
+    expect(capabilities).toHaveProperty('prompts');
   });
 
   it('responde ping', async () => {
