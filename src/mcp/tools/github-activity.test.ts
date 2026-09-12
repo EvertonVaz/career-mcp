@@ -34,6 +34,7 @@ type Candidate = {
   last_commit: string;
   language: string | null;
   capped: boolean;
+  suggested_bullet: string;
   evidence: { type: string; ref: string };
 };
 
@@ -100,20 +101,19 @@ describe('suggest_experience_from_activity', () => {
         last_commit: '2023-09-20T10:00:00Z',
         language: 'TypeScript',
         capped: false,
+        suggested_bullet:
+          'Desenvolvimento em TypeScript no repositório etovaz/api-acme — 3 commits entre 03/2023 e 09/2023.',
         evidence: { type: 'repo', ref: 'etovaz/api-acme' },
       },
     ]);
     expect(candidatesOf(report, 'beta-2021')).toEqual([]);
   });
 
-  it('não escreve bullet nenhum, só entrega as fontes', async () => {
+  it('avisa que o bullet é rascunho e precisa de revisão', async () => {
     github.setRepos([{ name: 'api-acme' }]);
     github.setCommits('etovaz/api-acme', ['2023-03-01T10:00:00Z']);
 
-    const [candidate] = candidatesOf(await activity(), 'acme-2023');
-
-    expect(candidate).not.toHaveProperty('bullet');
-    expect((await activity()).needs_human_input).toMatch(/bullet/i);
+    expect((await activity()).needs_human_input).toMatch(/rascunho|revis/i);
   });
 
   it('separa em duas experiências os commits de janelas diferentes', async () => {
@@ -212,6 +212,58 @@ describe('suggest_experience_from_activity', () => {
 
     expect(candidate?.capped).toBe(true);
     expect(candidate?.commits).toBe(300);
+  });
+});
+
+describe('suggested_bullet', () => {
+  const bulletOf = async (): Promise<string> =>
+    candidatesOf(await activity(), 'acme-2023')[0]?.suggested_bullet ?? '';
+
+  it('usa "em" quando tudo aconteceu no mesmo mês', async () => {
+    github.setRepos([{ name: 'api-acme', language: 'Go' }]);
+    github.setCommits('etovaz/api-acme', ['2023-03-01T10:00:00Z', '2023-03-20T10:00:00Z']);
+
+    expect(await bulletOf()).toBe(
+      'Desenvolvimento em Go no repositório etovaz/api-acme — 2 commits em 03/2023.',
+    );
+  });
+
+  it('não inventa linguagem quando o GitHub não detectou', async () => {
+    github.setRepos([{ name: 'api-acme' }]);
+    github.setCommits('etovaz/api-acme', ['2023-03-01T10:00:00Z']);
+
+    expect(await bulletOf()).toBe(
+      'Contribuições no repositório etovaz/api-acme — 1 commit em 03/2023.',
+    );
+  });
+
+  it('marca o volume como piso quando a contagem foi capada', async () => {
+    github.setPageSize(100);
+    github.setRepos([{ name: 'gigante', language: 'Go' }]);
+    github.setCommits(
+      'etovaz/gigante',
+      Array.from({ length: 350 }, (_, i) => `2023-01-01T00:${String(i % 60).padStart(2, '0')}:00Z`),
+    );
+
+    expect(await bulletOf()).toContain('300+ commits');
+  });
+
+  it('não afirma resultado nem impacto que o GitHub não sabe', async () => {
+    github.setRepos([{ name: 'api-acme', language: 'Go' }]);
+    github.setCommits('etovaz/api-acme', ['2023-03-01T10:00:00Z']);
+
+    const bullet = await bulletOf();
+
+    expect(bullet).not.toMatch(/reduz|aument|melhor|otimiz|lideran|respons/i);
+  });
+
+  it('aparece também nos orphan_repos', async () => {
+    github.setRepos([{ name: 'lacuna', language: 'Rust' }]);
+    github.setCommits('etovaz/lacuna', ['2019-05-01T10:00:00Z']);
+
+    expect((await activity()).orphan_repos[0]?.suggested_bullet).toBe(
+      'Desenvolvimento em Rust no repositório etovaz/lacuna — 1 commit em 05/2019.',
+    );
   });
 });
 

@@ -21,11 +21,44 @@ type Candidate = {
   last_commit: string | null;
   language: string | null;
   capped: boolean;
+  /** Rascunho factual. Descreve atividade, não impacto. */
+  suggested_bullet: string;
   evidence: { type: 'repo'; ref: string };
 };
 
 const NEEDS_HUMAN =
-  'Os bullets precisam ser escritos por você: o GitHub sabe volume e período, não sabe o que você resolveu.';
+  'suggested_bullet é rascunho: descreve atividade (repo, linguagem, volume, período), não impacto. Revise e reescreva antes de usar — o GitHub não sabe o que você resolveu.';
+
+/** "2023-03-01T10:00:00Z" -> "03/2023". */
+function monthYear(iso: string): string {
+  const date = new Date(iso);
+  return `${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}`;
+}
+
+/**
+ * Monta a frase só com o que a evidência sustenta. Nada de verbo de impacto
+ * ("reduziu", "liderou"): isso o GitHub não sabe e seria invenção.
+ */
+function suggestBullet(repo: Repo, dates: string[], capped: boolean): string {
+  const first = dates[0] as string;
+  const last = dates[dates.length - 1] as string;
+
+  const volume = capped
+    ? `${dates.length}+ commits`
+    : `${dates.length} commit${dates.length === 1 ? '' : 's'}`;
+
+  const period =
+    monthYear(first) === monthYear(last)
+      ? `em ${monthYear(first)}`
+      : `entre ${monthYear(first)} e ${monthYear(last)}`;
+
+  const what =
+    repo.language === null
+      ? `Contribuições no repositório ${repo.full_name}`
+      : `Desenvolvimento em ${repo.language} no repositório ${repo.full_name}`;
+
+  return `${what} — ${volume} ${period}.`;
+}
 
 function toCandidate(repo: Repo, dates: string[], capped: boolean): Candidate {
   return {
@@ -35,6 +68,7 @@ function toCandidate(repo: Repo, dates: string[], capped: boolean): Candidate {
     last_commit: dates[dates.length - 1] ?? null,
     language: repo.language,
     capped,
+    suggested_bullet: suggestBullet(repo, dates, capped),
     evidence: { type: 'repo', ref: repo.full_name },
   };
 }
@@ -65,6 +99,7 @@ const candidateShape = z.object({
   last_commit: z.string().nullable(),
   language: z.string().nullable(),
   capped: z.boolean(),
+  suggested_bullet: z.string(),
   evidence: z.object({ type: z.literal('repo'), ref: z.string() }),
 });
 
@@ -80,10 +115,10 @@ export function registerGithubActivityTool(
       description: `Para cada experiência do career.yml, acha os repositórios em que você
 commitou dentro daquela janela de datas.
 
-NÃO escreve bullets. Devolve a matéria-prima com evidência — repo, volume de
-commits, primeiro e último commit, linguagem — para você (ou a LLM, com essas
-fontes à vista) escrever o bullet. O GitHub sabe quanto e quando, não sabe o
-que você resolveu.
+Cada candidato vem com suggested_bullet: um rascunho montado só com o que a
+evidência sustenta — repo, linguagem, volume de commits e período. É descrição
+de atividade, não de impacto, e precisa ser reescrito antes de entrar no
+currículo. O GitHub sabe quanto e quando, não sabe o que você resolveu.
 
 Retorna:
   - experiences[]: cada uma com candidates[] ordenados por volume de commits
@@ -96,7 +131,8 @@ Parâmetros: experienceId (limita a uma experiência), minCommits (padrão 1),
 limit (candidates por experiência), since/includeForks/includeArchived
 (mesma semântica do sync_github).
 
-Não escreve no career.yml. O relatório fica em github://activity.`,
+Não escreve no career.yml: os bullets voltam como sugestão. O relatório fica
+em github://activity.`,
       inputSchema: {
         experienceId: z.string().min(1).optional().describe('Id da experiência a analisar.'),
         minCommits: z
