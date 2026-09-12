@@ -19,6 +19,8 @@ export type FakeGithub = {
   requests: { method: string; path: string; search: string; authorization?: string }[];
   setRepos(repos: FakeRepo[]): void;
   setLanguages(fullName: string, languages: Record<string, number>): void;
+  /** Datas ISO dos commits do usuário autenticado naquele repo. */
+  setCommits(fullName: string, dates: string[]): void;
   failWith(status: number, body?: unknown): void;
   /** Teto de itens por página, como o cap de 100 do GitHub. */
   setPageSize(size: number): void;
@@ -58,6 +60,7 @@ export async function startFakeGithub(): Promise<FakeGithub> {
   let repos: FakeRepo[] = [];
   let pageSize = 100;
   const languages = new Map<string, Record<string, number>>();
+  const commits = new Map<string, string[]>();
   let failure: { status: number; body: unknown } | null = null;
   const requests: FakeGithub['requests'] = [];
 
@@ -94,6 +97,46 @@ export async function startFakeGithub(): Promise<FakeGithub> {
       return;
     }
 
+    if (url.pathname === '/user') {
+      res.end(JSON.stringify({ login: 'etovaz', id: 1 }));
+      return;
+    }
+
+    const commitsRoute = /^\/repos\/([^/]+\/[^/]+)\/commits$/.exec(url.pathname);
+    if (commitsRoute) {
+      const since = url.searchParams.get('since');
+      const until = url.searchParams.get('until');
+      const author = url.searchParams.get('author');
+
+      const matching = (commits.get(commitsRoute[1] as string) ?? [])
+        .filter((date) => (since === null ? true : date >= since))
+        .filter((date) => (until === null ? true : date <= until))
+        .filter(() => author === null || author === 'etovaz');
+
+      const perPage = Math.min(Number(url.searchParams.get('per_page') ?? '30'), pageSize);
+      const page = Number(url.searchParams.get('page') ?? '1');
+      const slice = matching.slice((page - 1) * perPage, page * perPage);
+
+      if (page * perPage < matching.length) {
+        const { port } = server.address() as { port: number };
+        res.setHeader(
+          'link',
+          `<http://127.0.0.1:${port}${url.pathname}?per_page=${perPage}&page=${page + 1}>; rel="next"`,
+        );
+      }
+
+      res.end(
+        JSON.stringify(
+          slice.map((date, index) => ({
+            sha: `sha-${page}-${index}`,
+            commit: { author: { name: 'Everton', date } },
+            author: { login: 'etovaz' },
+          })),
+        ),
+      );
+      return;
+    }
+
     const single = /^\/repos\/[^/]+\/([^/]+)$/.exec(url.pathname);
     if (single) {
       const found = repos.find((repo) => repo.name === single[1]);
@@ -127,6 +170,7 @@ export async function startFakeGithub(): Promise<FakeGithub> {
       repos = next;
     },
     setLanguages: (fullName, next) => languages.set(fullName, next),
+    setCommits: (fullName, dates) => commits.set(fullName, [...dates].sort()),
     failWith: (status, body = { message: 'erro' }) => {
       failure = { status, body };
     },
@@ -137,6 +181,7 @@ export async function startFakeGithub(): Promise<FakeGithub> {
       repos = [];
       pageSize = 100;
       languages.clear();
+      commits.clear();
       failure = null;
       requests.length = 0;
     },

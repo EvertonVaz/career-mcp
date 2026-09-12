@@ -4,6 +4,7 @@ import { registerCareerResources } from './resources/career.js';
 import { registerGithubResources } from './resources/github.js';
 import { registerCareerReadTools } from './tools/career-read.js';
 import { registerGithubTools, requireToken } from './tools/github.js';
+import { registerGithubActivityTool } from './tools/github-activity.js';
 import { registerGithubSuggestTools } from './tools/github-suggest.js';
 import { registerValidateTool } from './tools/validate.js';
 
@@ -24,6 +25,7 @@ export function createMcpServer(config: Config): McpServer {
   registerValidateTool(server, config);
   registerGithubTools(server, config);
   registerGithubSuggestTools(server, config, requireToken);
+  registerGithubActivityTool(server, config, requireToken);
 
   return server;
 }

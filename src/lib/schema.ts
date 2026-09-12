@@ -37,6 +37,12 @@ export function toSortable(date: string): string {
   return `${year}${month}${day}`;
 }
 
+/** "01/03/2023" -> "2023-03-01", para montar janela de data em API. */
+export function toIsoDate(date: string): string {
+  const [day, month, year] = date.split('/');
+  return `${year}-${month}-${day}`;
+}
+
 /** "owner/repo" */
 export const RepoSlug = z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'use "owner/repo"');
 

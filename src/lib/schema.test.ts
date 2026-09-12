@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CareerFile, toSortable } from './schema.js';
+import { CareerFile, toIsoDate, toSortable } from './schema.js';
 
 /** Career mínimo válido; cada teste sobrescreve só o que interessa. */
 function career(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -25,6 +25,13 @@ describe('toSortable', () => {
   it('ordena datas que a comparação de string erraria', () => {
     // "01/02/2024" < "03/01/2023" como string crua — aqui não.
     expect(toSortable('01/02/2024') > toSortable('03/01/2023')).toBe(true);
+  });
+});
+
+describe('toIsoDate', () => {
+  it('converte para o formato que a API do GitHub entende', () => {
+    expect(toIsoDate('01/03/2023')).toBe('2023-03-01');
+    expect(toIsoDate('31/12/2020')).toBe('2020-12-31');
   });
 });
 

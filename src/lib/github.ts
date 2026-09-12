@@ -29,7 +29,18 @@ export type RepoCache = {
   repos: Repo[];
 };
 
+export type CommitDates = {
+  /** Datas ISO em ordem crescente. */
+  dates: string[];
+  /** true quando bateu no teto de páginas: a lista é parcial, a mais recente. */
+  capped: boolean;
+};
+
 const CACHE_FILE = 'github-repos.json';
+const ACTIVITY_FILE = 'github-activity.json';
+
+/** Teto de páginas ao contar commits. 300 já responde "foi relevante?". */
+const MAX_COMMIT_PAGES = 3;
 
 export function createGithub(token: string, baseUrl?: string): Octokit {
   return new Octokit({ auth: token, ...(baseUrl === undefined ? {} : { baseUrl }) });
@@ -139,6 +150,66 @@ export async function fetchLanguages(
   }
 }
 
+export async function fetchLogin(octokit: Octokit): Promise<string> {
+  try {
+    const { data } = await octokit.rest.users.getAuthenticated();
+    return data.login;
+  } catch (error) {
+    throw describe(error);
+  }
+}
+
+type RawCommit = { commit?: { author?: { date?: string | null } | null } | null };
+
+/**
+ * Conta commits do autor numa janela. Para ao bater MAX_COMMIT_PAGES: repo
+ * com milhares de commits custaria dezenas de requisições para responder algo
+ * que 300 já responde.
+ */
+export async function fetchCommitDates(
+  octokit: Octokit,
+  fullName: string,
+  window: { author: string; since: string; until: string },
+): Promise<CommitDates> {
+  const [owner, repo] = fullName.split('/');
+  if (owner === undefined || repo === undefined) {
+    throw new Error(`Repo inválido: "${fullName}" — use o formato "owner/repo".`);
+  }
+
+  const dates: string[] = [];
+  let pages = 0;
+  let capped = false;
+
+  try {
+    const iterator = octokit.paginate.iterator(octokit.rest.repos.listCommits, {
+      owner,
+      repo,
+      author: window.author,
+      since: window.since,
+      until: window.until,
+      per_page: 100,
+    });
+
+    for await (const { data } of iterator) {
+      for (const commit of data as RawCommit[]) {
+        const date = commit.commit?.author?.date;
+        if (typeof date === 'string') dates.push(date);
+      }
+
+      if (++pages >= MAX_COMMIT_PAGES) {
+        capped = data.length === 100;
+        break;
+      }
+    }
+  } catch (error) {
+    throw describe(error);
+  }
+
+  dates.sort();
+
+  return { dates, capped };
+}
+
 /** O cache é descartável: perder é só rodar sync_github de novo. */
 export async function writeRepoCache(cacheDir: string, repos: Repo[]): Promise<RepoCache> {
   const cache: RepoCache = { synced_at: new Date().toISOString(), repos };
@@ -150,8 +221,28 @@ export async function writeRepoCache(cacheDir: string, repos: Repo[]): Promise<R
 }
 
 export async function readRepoCache(cacheDir: string): Promise<RepoCache | null> {
+  return readJson<RepoCache>(path.join(cacheDir, CACHE_FILE));
+}
+
+export async function writeActivityCache<T>(cacheDir: string, report: T): Promise<string> {
+  const cached_at = new Date().toISOString();
+
+  await mkdir(cacheDir, { recursive: true });
+  await writeFile(
+    path.join(cacheDir, ACTIVITY_FILE),
+    `${JSON.stringify({ cached_at, ...report }, null, 2)}\n`,
+  );
+
+  return cached_at;
+}
+
+export async function readActivityCache<T>(cacheDir: string): Promise<T | null> {
+  return readJson<T>(path.join(cacheDir, ACTIVITY_FILE));
+}
+
+async function readJson<T>(file: string): Promise<T | null> {
   try {
-    return JSON.parse(await readFile(path.join(cacheDir, CACHE_FILE), 'utf8')) as RepoCache;
+    return JSON.parse(await readFile(file, 'utf8')) as T;
   } catch {
     // Sem cache ainda, ou cache corrompido: nos dois casos é rodar sync de novo.
     return null;
