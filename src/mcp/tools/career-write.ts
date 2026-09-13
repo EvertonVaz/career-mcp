@@ -4,10 +4,21 @@ import { z } from 'zod';
 import type { Config } from '../../config.js';
 import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
 import { loadCareer, saveCareer, validateCareer } from '../../lib/loader.js';
-import { BrDate, Evidence, Id, RepoSlug, SkillCategory, type Career } from '../../lib/schema.js';
+import {
+  BrDate,
+  Evidence,
+  Id,
+  Language as LanguageSchema,
+  RepoSlug,
+  SkillCategory,
+  type Career,
+} from '../../lib/schema.js';
 
 type Experience = Career['experiences'][number];
 type Project = Career['projects'][number];
+type Education = Career['education'][number];
+type Certification = Career['certifications'][number];
+type Language = Career['languages'][number];
 type Skill = Career['skills'][number];
 
 /**
@@ -75,6 +86,38 @@ const projectFields = {
   images: z.array(z.object({ url: z.url(), alt: z.string().min(1) })),
   highlight: z.boolean(),
 };
+
+/** Campos de formação que você controla; provenance é do servidor. */
+const educationFields = {
+  institution: z.string().min(1),
+  degree: z.string().min(1),
+  field: z.string().min(1),
+  start: BrDate,
+  end: BrDate.nullable(),
+};
+
+/** Campos de certificação que você controla; provenance é do servidor. */
+const certificationFields = {
+  name: z.string().min(1),
+  issuer: z.string().min(1),
+  issued_at: BrDate,
+  expires_at: BrDate.nullable(),
+  credential_url: z.url(),
+};
+
+/** Idioma não tem id nem provenance: o nome é a chave. */
+const languageFields = {
+  level: LanguageSchema.shape.level,
+};
+
+function findLanguage(career: Career, name: string): Language {
+  const found = career.languages.find(
+    (language) => language.name.toLowerCase() === name.toLowerCase(),
+  );
+  if (found === undefined) throw new Error(`Idioma "${name}" não existe no career.yml.`);
+
+  return found;
+}
 
 const skillFields = {
   category: SkillCategory,
@@ -318,6 +361,341 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
           return {
             ...career,
             experiences: career.experiences.filter((experience) => experience.id !== id),
+          };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'add_education',
+    {
+      title: 'Adicionar formação',
+      description: `Adiciona uma formação ao career.yml.
+
+Datas em DD/MM/YYYY. end ausente ou null significa em andamento.
+Entra sempre com provenance.verified = false — use mark_verified depois de
+conferir.
+
+Sem confirm, devolve só o diff do que faria.`,
+      inputSchema: {
+        education: z.object({ id: Id, ...optional(educationFields) }).extend({
+          institution: educationFields.institution,
+          degree: educationFields.degree,
+          start: educationFields.start,
+        }),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ education, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          requireFreeId(career.education, education.id, 'formação');
+
+          const nova = {
+            ...education,
+            end: education.end ?? null,
+            provenance: { verified: false, source: 'manual' as const },
+          } as Education;
+
+          return { ...career, education: [...career.education, nova] };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'update_education',
+    {
+      title: 'Atualizar formação',
+      description: `Aplica um patch parcial numa formação existente.
+
+Só os campos enviados mudam. provenance.verified é preservado.
+
+Sem confirm, devolve só o diff.`,
+      inputSchema: {
+        id: Id.describe('Id da formação a atualizar.'),
+        patch: z.object(optional(educationFields)),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, patch, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          find(career.education, id, 'Formação');
+
+          return {
+            ...career,
+            education: career.education.map((item) =>
+              item.id === id ? ({ ...item, ...patch } as Education) : item,
+            ),
+          };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'delete_education',
+    {
+      title: 'Remover formação',
+      description: `Remove uma formação do career.yml.
+
+Recusa se alguma skill citar essa formação como evidência. Tire a evidência
+primeiro.
+
+Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+      inputSchema: { id: Id.describe('Id da formação a remover.'), confirm: confirmInput },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          find(career.education, id, 'Formação');
+          requireNoEvidence(career, 'education', id);
+
+          return { ...career, education: career.education.filter((item) => item.id !== id) };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'add_certification',
+    {
+      title: 'Adicionar certificação',
+      description: `Adiciona uma certificação ao career.yml.
+
+Datas em DD/MM/YYYY. expires_at ausente ou null significa que não expira.
+Entra sempre com provenance.verified = false — use mark_verified depois de
+conferir.
+
+Sem confirm, devolve só o diff do que faria.`,
+      inputSchema: {
+        certification: z.object({ id: Id, ...optional(certificationFields) }).extend({
+          name: certificationFields.name,
+          issuer: certificationFields.issuer,
+          issued_at: certificationFields.issued_at,
+        }),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ certification, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          requireFreeId(career.certifications, certification.id, 'certificação');
+
+          const nova = {
+            ...certification,
+            expires_at: certification.expires_at ?? null,
+            provenance: { verified: false, source: 'manual' as const },
+          } as Certification;
+
+          return { ...career, certifications: [...career.certifications, nova] };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'update_certification',
+    {
+      title: 'Atualizar certificação',
+      description: `Aplica um patch parcial numa certificação existente.
+
+Só os campos enviados mudam. provenance.verified é preservado.
+
+Sem confirm, devolve só o diff.`,
+      inputSchema: {
+        id: Id.describe('Id da certificação a atualizar.'),
+        patch: z.object(optional(certificationFields)),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, patch, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          find(career.certifications, id, 'Certificação');
+
+          return {
+            ...career,
+            certifications: career.certifications.map((item) =>
+              item.id === id ? ({ ...item, ...patch } as Certification) : item,
+            ),
+          };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'delete_certification',
+    {
+      title: 'Remover certificação',
+      description: `Remove uma certificação do career.yml.
+
+Recusa se alguma skill citar essa certificação como evidência. Tire a
+evidência primeiro.
+
+Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+      inputSchema: { id: Id.describe('Id da certificação a remover.'), confirm: confirmInput },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ id, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          find(career.certifications, id, 'Certificação');
+          requireNoEvidence(career, 'certification', id);
+
+          return {
+            ...career,
+            certifications: career.certifications.filter((item) => item.id !== id),
+          };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'add_language',
+    {
+      title: 'Adicionar idioma',
+      description: `Adiciona um idioma ao career.yml. O nome é a chave: não há id.
+
+level segue o CEFR: A1, A2, B1, B2, C1, C2 ou native.
+
+Sem confirm, devolve só o diff do que faria.`,
+      inputSchema: {
+        language: z.object({ name: z.string().min(1), level: languageFields.level }),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ language, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          if (
+            career.languages.some((item) => item.name.toLowerCase() === language.name.toLowerCase())
+          ) {
+            throw new Error(`Já existe idioma "${language.name}" — use update_language.`);
+          }
+
+          return { ...career, languages: [...career.languages, language] };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'update_language',
+    {
+      title: 'Atualizar idioma',
+      description: `Muda o level de um idioma existente, achado pelo nome (ignorando
+maiúsculas).
+
+Sem confirm, devolve só o diff.`,
+      inputSchema: {
+        name: z.string().min(1).describe('Nome do idioma a atualizar.'),
+        patch: z.object(optional(languageFields)),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ name, patch, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          const alvo = findLanguage(career, name);
+
+          return {
+            ...career,
+            languages: career.languages.map((item) =>
+              item.name === alvo.name ? ({ ...item, ...patch } as Language) : item,
+            ),
+          };
+        }),
+      );
+    },
+  );
+
+  server.registerTool(
+    'delete_language',
+    {
+      title: 'Remover idioma',
+      description: `Remove um idioma do career.yml, achado pelo nome (ignorando maiúsculas).
+
+Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+      inputSchema: {
+        name: z.string().min(1).describe('Nome do idioma a remover.'),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ name, confirm }) => {
+      return respond(
+        await runWrite(config, confirm, (career) => {
+          const alvo = findLanguage(career, name);
+
+          return {
+            ...career,
+            languages: career.languages.filter((item) => item.name !== alvo.name),
           };
         }),
       );

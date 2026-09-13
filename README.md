@@ -37,7 +37,7 @@ npm run dev
 Gere o token com `openssl rand -hex 32`.
 
 ```bash
-npm test            # 325 testes
+npm test            # 352 testes
 npm run typecheck
 npm run build       # tsup -> dist/server.js
 npm start
@@ -106,6 +106,9 @@ Busca ignora caixa e acento. `tech`/`stack` são AND: pedir dois traz só quem
 tem os dois.
 
 **Escrita** — `update_profile`, `add_experience`, `update_experience`, `delete_experience`,
+`add_education`, `update_education`, `delete_education`,
+`add_certification`, `update_certification`, `delete_certification`,
+`add_language`, `update_language`, `delete_language`,
 `add_project`, `update_project`, `delete_project`, `add_skill`,
 `update_skill`, `mark_verified`.
 
