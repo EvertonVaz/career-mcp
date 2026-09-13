@@ -2,7 +2,13 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CareerValidationError, loadCareer, loadPrivate, saveCareer } from './loader.js';
+import {
+  CareerValidationError,
+  loadCareer,
+  loadPrivate,
+  saveCareer,
+  withCareerLock,
+} from './loader.js';
 import type { Career } from './schema.js';
 
 const VALID_YAML = `
@@ -124,6 +130,32 @@ describe('saveCareer', () => {
     await saveCareer(careerPath, career);
 
     expect(await readdir(dir)).toEqual(['career.yml']);
+  });
+
+  it('serializa load → save concorrentes no mesmo arquivo', async () => {
+    await load();
+
+    await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        withCareerLock(careerPath, async () => {
+          const career = await loadCareer(careerPath);
+          const nova = { ...career.experiences[0], id: `job-${i}` } as Career['experiences'][number];
+          await saveCareer(careerPath, { ...career, experiences: [...career.experiences, nova] });
+        }),
+      ),
+    );
+
+    expect((await loadCareer(careerPath)).experiences).toHaveLength(11);
+  });
+
+  it('libera o lock quando a operação falha', async () => {
+    await expect(
+      withCareerLock(careerPath, async () => {
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+
+    expect(await withCareerLock(careerPath, async () => 'ok')).toBe('ok');
   });
 
   it('cria o arquivo quando ainda não existe', async () => {

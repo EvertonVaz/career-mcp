@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Config } from '../../config.js';
 import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
-import { loadCareer, saveCareer, validateCareer } from '../../lib/loader.js';
+import { loadCareer, saveCareer, validateCareer, withCareerLock } from '../../lib/loader.js';
 import {
   BrDate,
   Evidence,
@@ -31,18 +31,20 @@ async function runWrite(
   mutate: (career: Career) => Career,
   load: (filePath: string) => Promise<Career> = loadCareer,
 ): Promise<{ applied: boolean; changes: Change[] }> {
-  const career = await load(config.paths.career);
-  // Valida antes de decidir escrever: senão o preview diria "ok" e o confirm
-  // falharia depois. Também aplica os defaults, então o diff mostra o estado final.
-  const after = validateCareer(config.paths.career, mutate(career));
-  const changes = diffCareer(career, after);
+  return withCareerLock(config.paths.career, async () => {
+    const career = await load(config.paths.career);
+    // Valida antes de decidir escrever: senão o preview diria "ok" e o confirm
+    // falharia depois. Também aplica os defaults, então o diff mostra o estado final.
+    const after = validateCareer(config.paths.career, mutate(career));
+    const changes = diffCareer(career, after);
 
-  if (!confirm || changes.length === 0) return { applied: false, changes };
+    if (!confirm || changes.length === 0) return { applied: false, changes };
 
-  await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
-  await saveCareer(config.paths.career, after);
+    await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
+    await saveCareer(config.paths.career, after);
 
-  return { applied: true, changes };
+    return { applied: true, changes };
+  });
 }
 
 function respond(result: { applied: boolean; changes: Change[] }) {

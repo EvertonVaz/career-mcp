@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Config } from '../../config.js';
 import { createGithub, fetchLanguages, fetchRepos } from '../../lib/github.js';
 import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
-import { loadCareer, saveCareer } from '../../lib/loader.js';
+import { loadCareer, saveCareer, withCareerLock } from '../../lib/loader.js';
 import type { Career } from '../../lib/schema.js';
 
 type Skill = Career['skills'][number];
@@ -97,58 +97,60 @@ sync_github), minRepos (mínimo de repos por linguagem) e limit.`,
         }
       }
 
-      const career = await loadCareer(config.paths.career);
-      const known = new Set(career.skills.map((skill) => skill.name.toLowerCase()));
+      return withCareerLock(config.paths.career, async () => {
+        const career = await loadCareer(config.paths.career);
+        const known = new Set(career.skills.map((skill) => skill.name.toLowerCase()));
 
-      const suggestions: Suggestion[] = [...totals.entries()]
-        .filter(([key, entry]) => !known.has(key) && entry.repos.length >= minRepos)
-        .map(([, entry]) => ({
-          name: entry.name,
-          category: 'language' as const,
-          repos: entry.repos,
-          bytes: entry.bytes,
-          evidence: entry.repos.map((ref) => ({ type: 'repo' as const, ref })),
-        }))
-        // Mais repos vence mais bytes: linguagem usada em três projetos diz
-        // mais que um arquivo gigante gerado num só.
-        .sort((a, b) => b.repos.length - a.repos.length || b.bytes - a.bytes)
-        .slice(0, limit);
+        const suggestions: Suggestion[] = [...totals.entries()]
+          .filter(([key, entry]) => !known.has(key) && entry.repos.length >= minRepos)
+          .map(([, entry]) => ({
+            name: entry.name,
+            category: 'language' as const,
+            repos: entry.repos,
+            bytes: entry.bytes,
+            evidence: entry.repos.map((ref) => ({ type: 'repo' as const, ref })),
+          }))
+          // Mais repos vence mais bytes: linguagem usada em três projetos diz
+          // mais que um arquivo gigante gerado num só.
+          .sort((a, b) => b.repos.length - a.repos.length || b.bytes - a.bytes)
+          .slice(0, limit);
 
-      const base = { applied: false, scanned: repos.length, suggestions };
-      if (!confirm) return respond(base);
+        const base = { applied: false, scanned: repos.length, suggestions };
+        if (!confirm) return respond(base);
 
-      const chosen =
-        accept === undefined
-          ? suggestions
-          : suggestions.filter((suggestion) =>
-              accept.some((name) => name.toLowerCase() === suggestion.name.toLowerCase()),
-            );
+        const chosen =
+          accept === undefined
+            ? suggestions
+            : suggestions.filter((suggestion) =>
+                accept.some((name) => name.toLowerCase() === suggestion.name.toLowerCase()),
+              );
 
-      if (chosen.length === 0) return respond({ ...base, applied: true, added: [], changes: [] });
+        if (chosen.length === 0) return respond({ ...base, applied: true, added: [], changes: [] });
 
-      const novas: Skill[] = chosen.map((suggestion) => ({
-        name: suggestion.name,
-        category: 'language',
-        evidence: suggestion.evidence,
-        provenance: {
-          verified: false,
-          source: 'github',
-          source_ref: suggestion.repos.map((repo) => `github:${repo}`).join(', '),
-          last_synced_at: new Date().toISOString(),
-        },
-      }));
+        const novas: Skill[] = chosen.map((suggestion) => ({
+          name: suggestion.name,
+          category: 'language',
+          evidence: suggestion.evidence,
+          provenance: {
+            verified: false,
+            source: 'github',
+            source_ref: suggestion.repos.map((repo) => `github:${repo}`).join(', '),
+            last_synced_at: new Date().toISOString(),
+          },
+        }));
 
-      const after: Career = { ...career, skills: [...career.skills, ...novas] };
-      const changes: Change[] = diffCareer(career, after);
+        const after: Career = { ...career, skills: [...career.skills, ...novas] };
+        const changes: Change[] = diffCareer(career, after);
 
-      await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
-      await saveCareer(config.paths.career, after);
+        await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
+        await saveCareer(config.paths.career, after);
 
-      return respond({
-        ...base,
-        applied: true,
-        added: chosen.map((suggestion) => suggestion.name),
-        changes,
+        return respond({
+          ...base,
+          applied: true,
+          added: chosen.map((suggestion) => suggestion.name),
+          changes,
+        });
       });
     },
   );

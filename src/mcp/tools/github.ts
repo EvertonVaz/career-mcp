@@ -9,7 +9,7 @@ import {
   type Repo,
 } from '../../lib/github.js';
 import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
-import { loadCareer, saveCareer } from '../../lib/loader.js';
+import { loadCareer, saveCareer, withCareerLock } from '../../lib/loader.js';
 import { Project as ProjectSchema, type Career } from '../../lib/schema.js';
 
 type Project = Career['projects'][number];
@@ -242,58 +242,60 @@ includeArchived. Por padrão ignora fork e arquivado.`,
       const repos = await fetchRepos(octokit, { since, includeForks, includeArchived });
       const { synced_at } = await writeRepoCache(config.paths.cache, repos);
 
-      const career = await loadCareer(config.paths.career);
-      const byRepo = new Map(
-        career.projects
-          .filter((project) => project.github_repo !== undefined)
-          .map((project) => [project.github_repo as string, project]),
-      );
-      const taken = new Set(career.projects.map((project) => project.id));
+      return withCareerLock(config.paths.career, async () => {
+        const career = await loadCareer(config.paths.career);
+        const byRepo = new Map(
+          career.projects
+            .filter((project) => project.github_repo !== undefined)
+            .map((project) => [project.github_repo as string, project]),
+        );
+        const taken = new Set(career.projects.map((project) => project.id));
 
-      const proposals: Proposal[] = [];
-      const divergences: Divergence[] = [];
+        const proposals: Proposal[] = [];
+        const divergences: Divergence[] = [];
 
-      for (const repo of repos) {
-        const existing = byRepo.get(repo.full_name);
-        if (existing === undefined) proposals.push(toProposal(repo, taken));
-        else {
-          divergences.push(
-            ...findDivergences(existing, repo).map((item) => ({
-              ...item,
-              repo: repo.full_name,
-              project_id: existing.id,
-            })),
-          );
+        for (const repo of repos) {
+          const existing = byRepo.get(repo.full_name);
+          if (existing === undefined) proposals.push(toProposal(repo, taken));
+          else {
+            divergences.push(
+              ...findDivergences(existing, repo).map((item) => ({
+                ...item,
+                repo: repo.full_name,
+                project_id: existing.id,
+              })),
+            );
+          }
         }
-      }
 
-      const base = { applied: false, synced_at, scanned: repos.length, proposals, divergences };
+        const base = { applied: false, synced_at, scanned: repos.length, proposals, divergences };
 
-      if (!confirm) return respond(base);
+        if (!confirm) return respond(base);
 
-      const chosen =
-        accept === undefined
-          ? proposals
-          : proposals.filter((proposal) => accept.includes(proposal.repo));
+        const chosen =
+          accept === undefined
+            ? proposals
+            : proposals.filter((proposal) => accept.includes(proposal.repo));
 
-      if (chosen.length === 0) {
-        return respond({ ...base, applied: true, added: [], changes: [] });
-      }
+        if (chosen.length === 0) {
+          return respond({ ...base, applied: true, added: [], changes: [] });
+        }
 
-      const after: Career = {
-        ...career,
-        projects: [...career.projects, ...chosen.map((p) => toProject(p, synced_at))],
-      };
-      const changes: Change[] = diffCareer(career, after);
+        const after: Career = {
+          ...career,
+          projects: [...career.projects, ...chosen.map((p) => toProject(p, synced_at))],
+        };
+        const changes: Change[] = diffCareer(career, after);
 
-      await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
-      await saveCareer(config.paths.career, after);
+        await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
+        await saveCareer(config.paths.career, after);
 
-      return respond({
-        ...base,
-        applied: true,
-        added: chosen.map((proposal) => proposal.project_id),
-        changes,
+        return respond({
+          ...base,
+          applied: true,
+          added: chosen.map((proposal) => proposal.project_id),
+          changes,
+        });
       });
     },
   );
@@ -358,65 +360,67 @@ falha se colidir com projeto existente.`,
       const repo = await fetchRepo(octokit, fullName);
       const syncedAt = new Date().toISOString();
 
-      const career = await loadCareer(config.paths.career);
-      const existing = career.projects.find((project) => project.github_repo === repo.full_name);
+      return withCareerLock(config.paths.career, async () => {
+        const career = await loadCareer(config.paths.career);
+        const existing = career.projects.find((project) => project.github_repo === repo.full_name);
 
-      let project: Project;
-      let divergences: FieldDivergence[] = [];
+        let project: Project;
+        let divergences: FieldDivergence[] = [];
 
-      if (existing === undefined) {
-        const taken = new Set(career.projects.map((item) => item.id));
-        const wanted = asProject?.id;
+        if (existing === undefined) {
+          const taken = new Set(career.projects.map((item) => item.id));
+          const wanted = asProject?.id;
 
-        if (wanted !== undefined && taken.has(wanted)) {
-          throw new Error(`Já existe projeto com id "${wanted}" — escolha outro id.`);
-        }
+          if (wanted !== undefined && taken.has(wanted)) {
+            throw new Error(`Já existe projeto com id "${wanted}" — escolha outro id.`);
+          }
 
-        project = toProject(
-          {
-            ...toProposal(repo, taken),
-            ...(wanted === undefined ? {} : { project_id: wanted }),
-            ...(asProject?.name === undefined ? {} : { name: asProject.name }),
-          },
-          syncedAt,
-        );
-      } else {
-        if (asProject?.id !== undefined && asProject.id !== existing.id) {
-          throw new Error(
-            `${repo.full_name} já é o projeto "${existing.id}" — renomear id quebraria as evidências que apontam para ele.`,
+          project = toProject(
+            {
+              ...toProposal(repo, taken),
+              ...(wanted === undefined ? {} : { project_id: wanted }),
+              ...(asProject?.name === undefined ? {} : { name: asProject.name }),
+            },
+            syncedAt,
           );
+        } else {
+          if (asProject?.id !== undefined && asProject.id !== existing.id) {
+            throw new Error(
+              `${repo.full_name} já é o projeto "${existing.id}" — renomear id quebraria as evidências que apontam para ele.`,
+            );
+          }
+          divergences = findDivergences(existing, repo);
+          project = mergeProject(existing, repo, syncedAt, asProject?.name);
         }
-        divergences = findDivergences(existing, repo);
-        project = mergeProject(existing, repo, syncedAt, asProject?.name);
-      }
 
-      const mode = existing === undefined ? ('create' as const) : ('update' as const);
-      const base = { applied: false, mode, repo: repo.full_name, project_id: project.id, divergences, project };
+        const mode = existing === undefined ? ('create' as const) : ('update' as const);
+        const base = { applied: false, mode, repo: repo.full_name, project_id: project.id, divergences, project };
 
-      if (!confirm) return respond(base);
+        if (!confirm) return respond(base);
 
-      const after: Career = {
-        ...career,
-        projects:
-          existing === undefined
-            ? [...career.projects, project]
-            : career.projects.map((item) => (item.id === project.id ? project : item)),
-      };
-      const changes: Change[] = diffCareer(career, after);
-      if (changes.length === 0) return respond({ ...base, applied: true, changes });
+        const after: Career = {
+          ...career,
+          projects:
+            existing === undefined
+              ? [...career.projects, project]
+              : career.projects.map((item) => (item.id === project.id ? project : item)),
+        };
+        const changes: Change[] = diffCareer(career, after);
+        if (changes.length === 0) return respond({ ...base, applied: true, changes });
 
-      // Carimbo de sync sozinho não vira snapshot: history serve para recuperar
-      // conteúdo, e não há conteúdo a recuperar de um last_synced_at.
-      const substantive = changes.filter(
-        (change) => !change.path.endsWith('.provenance.last_synced_at'),
-      );
-      if (substantive.length > 0) {
-        await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
-      }
+        // Carimbo de sync sozinho não vira snapshot: history serve para recuperar
+        // conteúdo, e não há conteúdo a recuperar de um last_synced_at.
+        const substantive = changes.filter(
+          (change) => !change.path.endsWith('.provenance.last_synced_at'),
+        );
+        if (substantive.length > 0) {
+          await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
+        }
 
-      await saveCareer(config.paths.career, after);
+        await saveCareer(config.paths.career, after);
 
-      return respond({ ...base, applied: true, changes });
+        return respond({ ...base, applied: true, changes });
+      });
     },
   );
 }

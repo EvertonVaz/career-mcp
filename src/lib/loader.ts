@@ -90,6 +90,36 @@ async function writeAtomic(filePath: string, content: string): Promise<void> {
   }
 }
 
+const locks = new Map<string, Promise<void>>();
+
+/**
+ * Serializa quem faz load → mutate → save no mesmo arquivo. O rename atômico
+ * impede arquivo parcial, não update perdido: sem isso, duas tools leem a mesma
+ * versão e a segunda grava por cima da primeira.
+ *
+ * Lock em memória: vale para um processo só, que é como o servidor roda.
+ * Réplicas ou edição manual concorrente continuam fora da proteção.
+ */
+export async function withCareerLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+  const key = path.resolve(filePath);
+  const previous = locks.get(key) ?? Promise.resolve();
+
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => current);
+  locks.set(key, tail);
+
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (locks.get(key) === tail) locks.delete(key);
+  }
+}
+
 export async function saveCareer(filePath: string, career: Career): Promise<Career> {
   const validated = validateCareer(filePath, career);
 

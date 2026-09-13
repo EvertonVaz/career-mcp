@@ -277,3 +277,22 @@ describe('delete_experience', () => {
     expect(result.isError).toBe(true);
   });
 });
+
+describe('escritas simultâneas', () => {
+  it('não perdem dados', async () => {
+    const ids = Array.from({ length: 10 }, (_, i) => `job-${i}`);
+
+    await Promise.all(
+      ids.map((id) =>
+        call('add_experience', {
+          experience: { id, company: 'Acme', role: 'Dev', start: '01/01/2020' },
+          confirm: true,
+        }),
+      ),
+    );
+
+    expect((await experiences()).map((item) => item.id).sort()).toEqual(
+      ['acme-2023', ...ids].sort(),
+    );
+  });
+});
