@@ -37,7 +37,7 @@ npm run dev
 Gere o token com `openssl rand -hex 32`.
 
 ```bash
-npm test            # 317 testes
+npm test            # 325 testes
 npm run typecheck
 npm run build       # tsup -> dist/server.js
 npm start
@@ -105,13 +105,16 @@ manda `WWW-Authenticate`.
 Busca ignora caixa e acento. `tech`/`stack` são AND: pedir dois traz só quem
 tem os dois.
 
-**Escrita** — `add_experience`, `update_experience`, `delete_experience`,
+**Escrita** — `update_profile`, `add_experience`, `update_experience`, `delete_experience`,
 `add_project`, `update_project`, `delete_project`, `add_skill`,
 `update_skill`, `mark_verified`.
 
 Todas param no diff sem `confirm: true`. Com confirm, tiram snapshot em
 `history/` antes de gravar. Patch substitui array inteiro, não mescla.
 Remover algo que uma skill cita como evidência é recusado.
+
+`update_profile` é a única que cria o `career.yml` quando ele não existe
+(exige `name` e `headline`) — é o primeiro passo num data dir vazio.
 
 **GitHub** — `sync_github`, `import_github_repo`,
 `suggest_skills_from_github`, `suggest_experience_from_activity`.
@@ -130,6 +133,7 @@ então o que desencontra é arquivo gerado antes de uma edição.
 
 ## Prompts
 
+- `criar-perfil` — guia inicial: coleta o profile e cria o `career.yml`
 - `atualizar-linkedin-com-github` — sync, revisão, aprovação, geração
 - `tailor-resume` (arg: `vaga`) — extrai requisitos, cruza com o career.yml
 - `auditoria-trimestral` — valida, cobra o que falta, confirma pendências

@@ -1,3 +1,4 @@
+import { access } from 'node:fs/promises';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Config } from '../../config.js';
@@ -17,8 +18,9 @@ async function runWrite(
   config: Config,
   confirm: boolean,
   mutate: (career: Career) => Career,
+  load: (filePath: string) => Promise<Career> = loadCareer,
 ): Promise<{ applied: boolean; changes: Change[] }> {
-  const career = await loadCareer(config.paths.career);
+  const career = await load(config.paths.career);
   // Valida antes de decidir escrever: senão o preview diria "ok" e o confirm
   // falharia depois. Também aplica os defaults, então o diff mostra o estado final.
   const after = validateCareer(config.paths.career, mutate(career));
@@ -120,7 +122,85 @@ function requireNoEvidence(career: Career, type: string, ref: string): void {
   }
 }
 
+/** Campos do profile. Os limites de headline e summary são os do LinkedIn. */
+const profileFields = {
+  name: z.string().min(1),
+  headline: z.string().min(1).max(220),
+  summary: z.string().max(2600),
+  location: z.string().min(1),
+  email: z.email(),
+  links: z.object({
+    github: z.url().optional(),
+    linkedin: z.url().optional(),
+    site: z.url().optional(),
+  }),
+};
+
+/**
+ * Documento sem profile: o ponto de partida quando o career.yml ainda não
+ * existe. Diffar contra ele faz o preview mostrar só "profile added".
+ */
+function emptyCareer(): Career {
+  return {
+    meta: { schema_version: 1 },
+    experiences: [],
+    projects: [],
+    skills: [],
+    education: [],
+    certifications: [],
+    languages: [],
+  } as unknown as Career;
+}
+
+/** Só o update_profile cria o arquivo; as demais tools seguem exigindo que ele exista. */
+async function loadCareerOrEmpty(filePath: string): Promise<Career> {
+  try {
+    await access(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyCareer();
+    throw error;
+  }
+
+  return loadCareer(filePath);
+}
+
 export function registerCareerWriteTools(server: McpServer, config: Config): void {
+  server.registerTool(
+    'update_profile',
+    {
+      title: 'Atualizar profile',
+      description: `Aplica um patch parcial no profile do career.yml.
+
+Se o career.yml ainda não existe, cria o arquivo — nesse caso name e headline
+são obrigatórios. É o primeiro passo num data dir vazio.
+
+Só os campos enviados mudam. links é substituído inteiro, não mesclado.
+
+Sem confirm, devolve só o diff.`,
+      inputSchema: {
+        patch: z.object(optional(profileFields)),
+        confirm: confirmInput,
+      },
+      outputSchema: WRITE_OUTPUT,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ patch, confirm }) => {
+      return respond(
+        await runWrite(
+          config,
+          confirm,
+          (career) => ({ ...career, profile: { ...career.profile, ...patch } as Career['profile'] }),
+          loadCareerOrEmpty,
+        ),
+      );
+    },
+  );
+
   server.registerTool(
     'add_experience',
     {

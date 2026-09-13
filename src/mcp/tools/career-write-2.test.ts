@@ -300,3 +300,79 @@ describe('mark_verified', () => {
     expect(result.isError).toBe(true);
   });
 });
+
+describe('update_profile', () => {
+  it('sem confirm mostra o diff e não escreve', async () => {
+    const antes = await h.readCareer();
+
+    const result = await call('update_profile', { patch: { headline: 'Tech Lead' } });
+
+    expect(result.changes).toEqual([
+      { path: 'profile.headline', kind: 'changed', before: 'Desenvolvedor', after: 'Tech Lead' },
+    ]);
+    expect(await h.readCareer()).toBe(antes);
+  });
+
+  it('com confirm aplica patch parcial preservando o resto e versiona', async () => {
+    const result = await call('update_profile', {
+      patch: { headline: 'Tech Lead', links: { github: 'https://github.com/etovaz' } },
+      confirm: true,
+    });
+
+    expect(result.applied).toBe(true);
+    expect(await h.readResource('career://profile')).toMatchObject({
+      name: 'Everton',
+      headline: 'Tech Lead',
+      links: { github: 'https://github.com/etovaz' },
+    });
+    expect(await readdir(h.historyDir)).toHaveLength(2);
+  });
+
+  it('recusa headline acima do limite do LinkedIn', async () => {
+    const result = await raw('update_profile', {
+      patch: { headline: 'x'.repeat(221) },
+      confirm: true,
+    });
+
+    expect(result.isError).toBe(true);
+  });
+
+  describe('sem career.yml', () => {
+    beforeEach(() => h.removeCareer());
+
+    it('sem confirm mostra o profile que criaria e não cria o arquivo', async () => {
+      const result = await call('update_profile', {
+        patch: { name: 'Everton', headline: 'Desenvolvedor' },
+      });
+
+      expect(result.applied).toBe(false);
+      expect(result.changes).toEqual([
+        expect.objectContaining({ path: 'profile', kind: 'added' }),
+      ]);
+      await expect(h.readCareer()).rejects.toThrow();
+    });
+
+    it('com confirm cria o career.yml a partir do profile', async () => {
+      const result = await call('update_profile', {
+        patch: { name: 'Everton', headline: 'Desenvolvedor' },
+        confirm: true,
+      });
+
+      expect(result.applied).toBe(true);
+      expect(await h.readResource('career://profile')).toMatchObject({
+        name: 'Everton',
+        headline: 'Desenvolvedor',
+      });
+      expect(await projects()).toEqual([]);
+      expect(await readdir(h.historyDir)).toEqual([]);
+    });
+
+    it('recusa criar sem name e headline', async () => {
+      const result = await raw('update_profile', { patch: { name: 'Everton' }, confirm: true });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toMatch(/profile\.headline/);
+      await expect(h.readCareer()).rejects.toThrow();
+    });
+  });
+});

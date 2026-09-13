@@ -24,12 +24,13 @@ async function textOf(name: string, args: Record<string, string> = {}): Promise<
 }
 
 describe('registro dos prompts', () => {
-  it('expõe os três prompts do plano', async () => {
+  it('expõe os prompts do plano', async () => {
     const { prompts } = await h.client.listPrompts();
 
     expect(prompts.map((p) => p.name).sort()).toEqual([
       'atualizar-linkedin-com-github',
       'auditoria-trimestral',
+      'criar-perfil',
       'tailor-resume',
     ]);
   });
@@ -77,6 +78,25 @@ describe('tailor-resume', () => {
 
     expect(text).toContain('tailor_for_job');
     expect(text).toContain('without_evidence');
+    expect(text).toMatch(/não invent/i);
+  });
+});
+
+describe('criar-perfil', () => {
+  it('coleta name e headline e grava com update_profile após confirmação', async () => {
+    const text = await textOf('criar-perfil');
+
+    expect(text).toContain('name');
+    expect(text).toContain('headline');
+    expect(text).toContain('update_profile');
+    expect(text).toContain('confirm');
+  });
+
+  it('cita os limites do LinkedIn e proíbe inventar', async () => {
+    const text = await textOf('criar-perfil');
+
+    expect(text).toContain('220');
+    expect(text).toContain('2600');
     expect(text).toMatch(/não invent/i);
   });
 });
