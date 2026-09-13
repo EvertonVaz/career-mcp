@@ -139,11 +139,18 @@ function find<T extends { id: string }>(items: T[], id: string, collection: stri
   return found;
 }
 
-function requireFreeId(items: { id: string }[], id: string, collection: string): void {
+/** where aponta o item do lote, ex.: experiences[2]. */
+function requireFreeId(items: { id: string }[], id: string, where: string, collection: string): void {
   if (items.some((item) => item.id === id)) {
-    throw new Error(`Já existe ${collection} com id "${id}" — escolha outro.`);
+    throw new Error(`${where}: já existe ${collection} com id "${id}" — escolha outro.`);
   }
 }
+
+/** Teto por chamada: preview de diff maior que isso não cabe numa revisão. */
+const MAX_LOTE = 50;
+
+const LOTE_DESCRIPTION = `Recebe de 1 a ${MAX_LOTE} itens e grava numa escrita só, com um snapshot.
+Tudo ou nada: se um item for inválido, nenhum é gravado e o erro aponta a posição.`;
 
 function findSkill(career: Career, name: string): Skill {
   const found = career.skills.find(
@@ -250,7 +257,9 @@ Sem confirm, devolve só o diff.`,
     'add_experience',
     {
       title: 'Adicionar experiência',
-      description: `Adiciona uma experiência ao career.yml.
+      description: `Adiciona experiências ao career.yml.
+
+${LOTE_DESCRIPTION}
 
 Datas em DD/MM/YYYY. end ausente ou null significa cargo atual.
 Entra sempre com provenance.verified = false — use mark_verified depois de
@@ -258,11 +267,16 @@ conferir.
 
 Sem confirm, devolve só o diff do que faria.`,
       inputSchema: {
-        experience: z.object({ id: Id, ...optional(experienceFields) }).extend({
-          company: experienceFields.company,
-          role: experienceFields.role,
-          start: experienceFields.start,
-        }),
+        experiences: z
+          .array(
+            z.object({ id: Id, ...optional(experienceFields) }).extend({
+              company: experienceFields.company,
+              role: experienceFields.role,
+              start: experienceFields.start,
+            }),
+          )
+          .min(1)
+          .max(MAX_LOTE),
         confirm: confirmInput,
       },
       outputSchema: WRITE_OUTPUT,
@@ -273,20 +287,27 @@ Sem confirm, devolve só o diff do que faria.`,
         openWorldHint: false,
       },
     },
-    async ({ experience, confirm }) => {
+    async ({ experiences, confirm }) => {
       return respond(
         await runWrite(config, confirm, (career) => {
-          requireFreeId(career.experiences, experience.id, 'experiência');
+          const novas = experiences.map((experience, i) => {
+            requireFreeId(
+              [...career.experiences, ...experiences.slice(0, i)],
+              experience.id,
+              `experiences[${i}]`,
+              'experiência',
+            );
 
-          const nova = {
-            ...experience,
-            end: experience.end ?? null,
-            bullets: experience.bullets ?? [],
-            tech: experience.tech ?? [],
-            provenance: { verified: false, source: 'manual' as const },
-          } as Experience;
+            return {
+              ...experience,
+              end: experience.end ?? null,
+              bullets: experience.bullets ?? [],
+              tech: experience.tech ?? [],
+              provenance: { verified: false, source: 'manual' as const },
+            } as Experience;
+          });
 
-          return { ...career, experiences: [...career.experiences, nova] };
+          return { ...career, experiences: [...career.experiences, ...novas] };
         }),
       );
     },
@@ -373,7 +394,9 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     'add_education',
     {
       title: 'Adicionar formação',
-      description: `Adiciona uma formação ao career.yml.
+      description: `Adiciona formações ao career.yml.
+
+${LOTE_DESCRIPTION}
 
 Datas em DD/MM/YYYY. end ausente ou null significa em andamento.
 Entra sempre com provenance.verified = false — use mark_verified depois de
@@ -381,11 +404,16 @@ conferir.
 
 Sem confirm, devolve só o diff do que faria.`,
       inputSchema: {
-        education: z.object({ id: Id, ...optional(educationFields) }).extend({
-          institution: educationFields.institution,
-          degree: educationFields.degree,
-          start: educationFields.start,
-        }),
+        education: z
+          .array(
+            z.object({ id: Id, ...optional(educationFields) }).extend({
+              institution: educationFields.institution,
+              degree: educationFields.degree,
+              start: educationFields.start,
+            }),
+          )
+          .min(1)
+          .max(MAX_LOTE),
         confirm: confirmInput,
       },
       outputSchema: WRITE_OUTPUT,
@@ -399,15 +427,22 @@ Sem confirm, devolve só o diff do que faria.`,
     async ({ education, confirm }) => {
       return respond(
         await runWrite(config, confirm, (career) => {
-          requireFreeId(career.education, education.id, 'formação');
+          const novas = education.map((item, i) => {
+            requireFreeId(
+              [...career.education, ...education.slice(0, i)],
+              item.id,
+              `education[${i}]`,
+              'formação',
+            );
 
-          const nova = {
-            ...education,
-            end: education.end ?? null,
-            provenance: { verified: false, source: 'manual' as const },
-          } as Education;
+            return {
+              ...item,
+              end: item.end ?? null,
+              provenance: { verified: false, source: 'manual' as const },
+            } as Education;
+          });
 
-          return { ...career, education: [...career.education, nova] };
+          return { ...career, education: [...career.education, ...novas] };
         }),
       );
     },
@@ -486,7 +521,9 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     'add_certification',
     {
       title: 'Adicionar certificação',
-      description: `Adiciona uma certificação ao career.yml.
+      description: `Adiciona certificações ao career.yml.
+
+${LOTE_DESCRIPTION}
 
 Datas em DD/MM/YYYY. expires_at ausente ou null significa que não expira.
 Entra sempre com provenance.verified = false — use mark_verified depois de
@@ -494,11 +531,16 @@ conferir.
 
 Sem confirm, devolve só o diff do que faria.`,
       inputSchema: {
-        certification: z.object({ id: Id, ...optional(certificationFields) }).extend({
-          name: certificationFields.name,
-          issuer: certificationFields.issuer,
-          issued_at: certificationFields.issued_at,
-        }),
+        certifications: z
+          .array(
+            z.object({ id: Id, ...optional(certificationFields) }).extend({
+              name: certificationFields.name,
+              issuer: certificationFields.issuer,
+              issued_at: certificationFields.issued_at,
+            }),
+          )
+          .min(1)
+          .max(MAX_LOTE),
         confirm: confirmInput,
       },
       outputSchema: WRITE_OUTPUT,
@@ -509,18 +551,25 @@ Sem confirm, devolve só o diff do que faria.`,
         openWorldHint: false,
       },
     },
-    async ({ certification, confirm }) => {
+    async ({ certifications, confirm }) => {
       return respond(
         await runWrite(config, confirm, (career) => {
-          requireFreeId(career.certifications, certification.id, 'certificação');
+          const novas = certifications.map((certification, i) => {
+            requireFreeId(
+              [...career.certifications, ...certifications.slice(0, i)],
+              certification.id,
+              `certifications[${i}]`,
+              'certificação',
+            );
 
-          const nova = {
-            ...certification,
-            expires_at: certification.expires_at ?? null,
-            provenance: { verified: false, source: 'manual' as const },
-          } as Certification;
+            return {
+              ...certification,
+              expires_at: certification.expires_at ?? null,
+              provenance: { verified: false, source: 'manual' as const },
+            } as Certification;
+          });
 
-          return { ...career, certifications: [...career.certifications, nova] };
+          return { ...career, certifications: [...career.certifications, ...novas] };
         }),
       );
     },
@@ -602,13 +651,18 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     'add_language',
     {
       title: 'Adicionar idioma',
-      description: `Adiciona um idioma ao career.yml. O nome é a chave: não há id.
+      description: `Adiciona idiomas ao career.yml. O nome é a chave: não há id.
+
+${LOTE_DESCRIPTION}
 
 level segue o CEFR: A1, A2, B1, B2, C1, C2 ou native.
 
 Sem confirm, devolve só o diff do que faria.`,
       inputSchema: {
-        language: z.object({ name: z.string().min(1), level: languageFields.level }),
+        languages: z
+          .array(z.object({ name: z.string().min(1), level: languageFields.level }))
+          .min(1)
+          .max(MAX_LOTE),
         confirm: confirmInput,
       },
       outputSchema: WRITE_OUTPUT,
@@ -619,16 +673,19 @@ Sem confirm, devolve só o diff do que faria.`,
         openWorldHint: false,
       },
     },
-    async ({ language, confirm }) => {
+    async ({ languages, confirm }) => {
       return respond(
         await runWrite(config, confirm, (career) => {
-          if (
-            career.languages.some((item) => item.name.toLowerCase() === language.name.toLowerCase())
-          ) {
-            throw new Error(`Já existe idioma "${language.name}" — use update_language.`);
-          }
+          languages.forEach((language, i) => {
+            const taken = [...career.languages, ...languages.slice(0, i)];
+            if (taken.some((item) => item.name.toLowerCase() === language.name.toLowerCase())) {
+              throw new Error(
+                `languages[${i}]: já existe idioma "${language.name}" — use update_language.`,
+              );
+            }
+          });
 
-          return { ...career, languages: [...career.languages, language] };
+          return { ...career, languages: [...career.languages, ...languages] };
         }),
       );
     },
@@ -708,16 +765,21 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     'add_project',
     {
       title: 'Adicionar projeto',
-      description: `Adiciona um projeto ao career.yml.
+      description: `Adiciona projetos ao career.yml.
+
+${LOTE_DESCRIPTION}
 
 problem, solution e result são o que transforma repositório em case — o
 validate_all cobra os três. Entra com provenance.verified = false.
 
 Sem confirm, devolve só o diff do que faria.`,
       inputSchema: {
-        project: z
-          .object({ id: Id, ...optional(projectFields) })
-          .extend({ name: projectFields.name }),
+        projects: z
+          .array(
+            z.object({ id: Id, ...optional(projectFields) }).extend({ name: projectFields.name }),
+          )
+          .min(1)
+          .max(MAX_LOTE),
         confirm: confirmInput,
       },
       outputSchema: WRITE_OUTPUT,
@@ -728,21 +790,28 @@ Sem confirm, devolve só o diff do que faria.`,
         openWorldHint: false,
       },
     },
-    async ({ project, confirm }) => {
+    async ({ projects, confirm }) => {
       return respond(
         await runWrite(config, confirm, (career) => {
-          requireFreeId(career.projects, project.id, 'projeto');
+          const novos = projects.map((project, i) => {
+            requireFreeId(
+              [...career.projects, ...projects.slice(0, i)],
+              project.id,
+              `projects[${i}]`,
+              'projeto',
+            );
 
-          const novo = {
-            ...project,
-            stack: project.stack ?? [],
-            links: project.links ?? {},
-            images: project.images ?? [],
-            highlight: project.highlight ?? false,
-            provenance: { verified: false, source: 'manual' as const },
-          } as Project;
+            return {
+              ...project,
+              stack: project.stack ?? [],
+              links: project.links ?? {},
+              images: project.images ?? [],
+              highlight: project.highlight ?? false,
+              provenance: { verified: false, source: 'manual' as const },
+            } as Project;
+          });
 
-          return { ...career, projects: [...career.projects, novo] };
+          return { ...career, projects: [...career.projects, ...novos] };
         }),
       );
     },
@@ -822,7 +891,9 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     'add_skill',
     {
       title: 'Adicionar skill',
-      description: `Adiciona uma skill ao career.yml. O nome é a chave: não há id.
+      description: `Adiciona skills ao career.yml. O nome é a chave: não há id.
+
+${LOTE_DESCRIPTION}
 
 evidence aponta para o que sustenta a skill. Os tipos experience, project,
 education e certification precisam apontar para um id que existe; repo e
@@ -831,9 +902,14 @@ external não são checados aqui.
 Skill sem evidência é aceita, mas o validate_all vai cobrar.
 Entra com provenance.verified = false.`,
       inputSchema: {
-        skill: z
-          .object({ name: z.string().min(1), ...optional(skillFields) })
-          .extend({ category: skillFields.category }),
+        skills: z
+          .array(
+            z
+              .object({ name: z.string().min(1), ...optional(skillFields) })
+              .extend({ category: skillFields.category }),
+          )
+          .min(1)
+          .max(MAX_LOTE),
         confirm: confirmInput,
       },
       outputSchema: WRITE_OUTPUT,
@@ -844,20 +920,23 @@ Entra com provenance.verified = false.`,
         openWorldHint: false,
       },
     },
-    async ({ skill, confirm }) => {
+    async ({ skills, confirm }) => {
       return respond(
         await runWrite(config, confirm, (career) => {
-          if (career.skills.some((item) => item.name.toLowerCase() === skill.name.toLowerCase())) {
-            throw new Error(`Já existe skill "${skill.name}" — use update_skill.`);
-          }
+          const novas = skills.map((skill, i) => {
+            const taken = [...career.skills, ...skills.slice(0, i)];
+            if (taken.some((item) => item.name.toLowerCase() === skill.name.toLowerCase())) {
+              throw new Error(`skills[${i}]: já existe skill "${skill.name}" — use update_skill.`);
+            }
 
-          const nova = {
-            ...skill,
-            evidence: skill.evidence ?? [],
-            provenance: { verified: false, source: 'manual' as const },
-          } as Skill;
+            return {
+              ...skill,
+              evidence: skill.evidence ?? [],
+              provenance: { verified: false, source: 'manual' as const },
+            } as Skill;
+          });
 
-          return { ...career, skills: [...career.skills, nova] };
+          return { ...career, skills: [...career.skills, ...novas] };
         }),
       );
     },

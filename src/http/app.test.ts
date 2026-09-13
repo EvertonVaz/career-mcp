@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadConfig } from '../config.js';
@@ -88,6 +89,14 @@ describe('/mcp', () => {
     const payload = await body(response);
     expect(payload.result?.serverInfo?.name).toBe('career-mcp-server');
     expect(payload.result?.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+  });
+
+  it('anuncia a versão do package.json', async () => {
+    const pkg = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'));
+
+    const payload = await body(await rpc('initialize', INITIALIZE_PARAMS));
+
+    expect(payload.result?.serverInfo?.version).toBe(pkg.version);
   });
 
   it('não abre sessão — stateless', async () => {

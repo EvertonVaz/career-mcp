@@ -116,6 +116,10 @@ Todas param no diff sem `confirm: true`. Com confirm, tiram snapshot em
 `history/` antes de gravar. Patch substitui array inteiro, não mescla.
 Remover algo que uma skill cita como evidência é recusado.
 
+As `add_*` recebem lista (`experiences`, `education`, `certifications`,
+`languages`, `projects`, `skills`) de 1 a 50 itens: uma escrita, um snapshot,
+tudo ou nada.
+
 `update_profile` é a única que cria o `career.yml` quando ele não existe
 (exige `name` e `headline`) — é o primeiro passo num data dir vazio.
 

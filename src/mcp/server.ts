@@ -1,4 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+// Fonte única da versão: o tsup embute o valor no bundle, então o runtime não
+// precisa do package.json. Bump com `npm version <x.y.z>`.
+import pkg from '../../package.json' with { type: 'json' };
 import type { Config } from '../config.js';
 import { registerPrompts } from './prompts/index.js';
 import { registerCareerResources } from './resources/career.js';
@@ -22,7 +25,7 @@ export function createMcpServer(config: Config): McpServer {
   // Sem `capabilities` na mão: o McpServer declara cada uma conforme os
   // register* acontecem. Declarar o que não existe faz o cliente chamar
   // método que responde -32601.
-  const server = new McpServer({ name: 'career-mcp-server', version: '0.1.0' });
+  const server = new McpServer({ name: 'career-mcp-server', version: pkg.version });
 
   registerCareerResources(server, config);
   registerGithubResources(server, config);

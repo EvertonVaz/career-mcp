@@ -75,7 +75,7 @@ describe('add_experience', () => {
   it('sem confirm mostra o que faria e não escreve', async () => {
     const antes = await h.readCareer();
 
-    const result = await call('add_experience', { experience: NOVA });
+    const result = await call('add_experience', { experiences: [NOVA] });
 
     expect(result.applied).toBe(false);
     expect(result.changes).toEqual([
@@ -86,7 +86,7 @@ describe('add_experience', () => {
   });
 
   it('com confirm escreve e versiona', async () => {
-    const result = await call('add_experience', { experience: NOVA, confirm: true });
+    const result = await call('add_experience', { experiences: [NOVA], confirm: true });
 
     expect(result.applied).toBe(true);
     expect((await experiences()).map((e) => e.id)).toEqual(['acme-2023', 'beta-2021']);
@@ -94,7 +94,7 @@ describe('add_experience', () => {
   });
 
   it('nasce como não verificada, de origem manual', async () => {
-    await call('add_experience', { experience: NOVA, confirm: true });
+    await call('add_experience', { experiences: [NOVA], confirm: true });
 
     const nova = (await experiences()).find((e) => e.id === 'beta-2021');
     expect(nova?.provenance).toEqual({ verified: false, source: 'manual' });
@@ -102,7 +102,7 @@ describe('add_experience', () => {
 
   it('aplica os defaults do schema', async () => {
     await call('add_experience', {
-      experience: { id: 'gama', company: 'Gama', role: 'Dev', start: '01/01/2019' },
+      experiences: [{ id: 'gama', company: 'Gama', role: 'Dev', start: '01/01/2019' }],
       confirm: true,
     });
 
@@ -112,7 +112,7 @@ describe('add_experience', () => {
 
   it('recusa id que já existe', async () => {
     const result = await raw('add_experience', {
-      experience: { ...NOVA, id: 'acme-2023' },
+      experiences: [{ ...NOVA, id: 'acme-2023' }],
       confirm: true,
     });
 
@@ -122,7 +122,7 @@ describe('add_experience', () => {
 
   it('recusa data fora do formato', async () => {
     const result = await raw('add_experience', {
-      experience: { ...NOVA, start: '2021-02' },
+      experiences: [{ ...NOVA, start: '2021-02' }],
       confirm: true,
     });
 
@@ -132,7 +132,7 @@ describe('add_experience', () => {
 
   it('já recusa no preview, sem esperar o confirm', async () => {
     const result = await raw('add_experience', {
-      experience: { ...NOVA, id: 'acme-2023' },
+      experiences: [{ ...NOVA, id: 'acme-2023' }],
     });
 
     expect(result.isError).toBe(true);
@@ -140,11 +140,69 @@ describe('add_experience', () => {
 
   it('recusa end anterior a start', async () => {
     const result = await raw('add_experience', {
-      experience: { ...NOVA, start: '01/02/2023', end: '01/02/2021' },
+      experiences: [{ ...NOVA, start: '01/02/2023', end: '01/02/2021' }],
       confirm: true,
     });
 
     expect(result.isError).toBe(true);
+  });
+
+  describe('em lote', () => {
+    const GAMA = { id: 'gama', company: 'Gama', role: 'Dev', start: '01/01/2019' };
+    const DELTA = { id: 'delta', company: 'Delta', role: 'Dev', start: '01/01/2018' };
+
+    it('grava todas numa escrita só, com um snapshot', async () => {
+      const result = await call('add_experience', {
+        experiences: [NOVA, GAMA, DELTA],
+        confirm: true,
+      });
+
+      expect(result.changes).toHaveLength(3);
+      expect((await experiences()).map((e) => e.id)).toEqual([
+        'acme-2023',
+        'beta-2021',
+        'gama',
+        'delta',
+      ]);
+      expect(await readdir(h.historyDir)).toHaveLength(2);
+    });
+
+    it('é tudo ou nada: um item inválido não grava nenhum', async () => {
+      const antes = await h.readCareer();
+
+      const result = await raw('add_experience', {
+        experiences: [GAMA, { ...DELTA, id: 'acme-2023' }],
+        confirm: true,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toMatch(/experiences\[1\]/);
+      expect(await h.readCareer()).toBe(antes);
+    });
+
+    it('recusa id repetido dentro do próprio lote', async () => {
+      const result = await raw('add_experience', {
+        experiences: [GAMA, { ...DELTA, id: 'gama' }],
+        confirm: true,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toMatch(/experiences\[1\].*gama/);
+    });
+
+    it('recusa lista vazia', async () => {
+      const result = await raw('add_experience', { experiences: [], confirm: true });
+
+      expect(result.isError).toBe(true);
+    });
+
+    it('recusa mais de 50 itens', async () => {
+      const muitas = Array.from({ length: 51 }, (_, i) => ({ ...GAMA, id: `job-${i}` }));
+
+      const result = await raw('add_experience', { experiences: muitas, confirm: true });
+
+      expect(result.isError).toBe(true);
+    });
   });
 });
 
@@ -285,7 +343,7 @@ describe('escritas simultâneas', () => {
     await Promise.all(
       ids.map((id) =>
         call('add_experience', {
-          experience: { id, company: 'Acme', role: 'Dev', start: '01/01/2020' },
+          experiences: [{ id, company: 'Acme', role: 'Dev', start: '01/01/2020' }],
           confirm: true,
         }),
       ),

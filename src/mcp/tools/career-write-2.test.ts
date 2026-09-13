@@ -56,7 +56,7 @@ describe('add_project', () => {
   it('sem confirm não escreve', async () => {
     const antes = await h.readCareer();
 
-    const result = await call('add_project', { project: { id: 'novo', name: 'Novo' } });
+    const result = await call('add_project', { projects: [{ id: 'novo', name: 'Novo' }] });
 
     expect(result.applied).toBe(false);
     expect(await h.readCareer()).toBe(antes);
@@ -64,7 +64,7 @@ describe('add_project', () => {
 
   it('com confirm grava como não verificado', async () => {
     await call('add_project', {
-      project: { id: 'portfolio', name: 'Portfólio', stack: ['Astro'] },
+      projects: [{ id: 'portfolio', name: 'Portfólio', stack: ['Astro'] }],
       confirm: true,
     });
 
@@ -78,7 +78,7 @@ describe('add_project', () => {
 
   it('recusa id duplicado', async () => {
     const result = await raw('add_project', {
-      project: { id: 'career-mcp', name: 'X' },
+      projects: [{ id: 'career-mcp', name: 'X' }],
       confirm: true,
     });
 
@@ -87,11 +87,37 @@ describe('add_project', () => {
 
   it('recusa link que não é URL', async () => {
     const result = await raw('add_project', {
-      project: { id: 'novo', name: 'Novo', links: { repo: 'nao-e-url' } },
+      projects: [{ id: 'novo', name: 'Novo', links: { repo: 'nao-e-url' } }],
       confirm: true,
     });
 
     expect(result.isError).toBe(true);
+  });
+
+  it('grava vários numa chamada', async () => {
+    await call('add_project', {
+      projects: [
+        { id: 'a', name: 'A' },
+        { id: 'b', name: 'B' },
+      ],
+      confirm: true,
+    });
+
+    expect((await projects()).map((p) => p.id)).toEqual(['career-mcp', 'a', 'b']);
+    expect(await readdir(h.historyDir)).toHaveLength(2);
+  });
+
+  it('recusa id repetido dentro do próprio lote', async () => {
+    const result = await raw('add_project', {
+      projects: [
+        { id: 'a', name: 'A' },
+        { id: 'a', name: 'B' },
+      ],
+      confirm: true,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/projects\[1\]/);
   });
 });
 
@@ -138,7 +164,7 @@ describe('delete_project', () => {
 describe('add_skill', () => {
   it('grava skill nova como não verificada', async () => {
     await call('add_skill', {
-      skill: { name: 'Go', category: 'language' },
+      skills: [{ name: 'Go', category: 'language' }],
       confirm: true,
     });
 
@@ -152,7 +178,7 @@ describe('add_skill', () => {
 
   it('recusa nome repetido ignorando caixa', async () => {
     const result = await raw('add_skill', {
-      skill: { name: 'typescript', category: 'language' },
+      skills: [{ name: 'typescript', category: 'language' }],
       confirm: true,
     });
 
@@ -162,11 +188,11 @@ describe('add_skill', () => {
 
   it('recusa evidência que aponta para id inexistente', async () => {
     const result = await raw('add_skill', {
-      skill: {
+      skills: [{
         name: 'Go',
         category: 'language',
         evidence: [{ type: 'project', ref: 'nao-existe' }],
-      },
+      }],
       confirm: true,
     });
 
@@ -176,11 +202,11 @@ describe('add_skill', () => {
 
   it('aceita evidência do tipo repo sem checar', async () => {
     await call('add_skill', {
-      skill: {
+      skills: [{
         name: 'Go',
         category: 'language',
         evidence: [{ type: 'repo', ref: 'etovaz/algo' }],
-      },
+      }],
       confirm: true,
     });
 
@@ -191,11 +217,46 @@ describe('add_skill', () => {
 
   it('recusa categoria fora do enum', async () => {
     const result = await raw('add_skill', {
-      skill: { name: 'Go', category: 'inventada' },
+      skills: [{ name: 'Go', category: 'inventada' }],
       confirm: true,
     });
 
     expect(result.isError).toBe(true);
+  });
+
+  it('grava 20 skills numa escrita só, com um snapshot', async () => {
+    const vinte = Array.from({ length: 20 }, (_, i) => ({ name: `Skill ${i}`, category: 'tool' }));
+
+    const result = await call('add_skill', { skills: vinte, confirm: true });
+
+    expect(result.changes).toHaveLength(20);
+    expect(await skills()).toHaveLength(21);
+    expect(await readdir(h.historyDir)).toHaveLength(2);
+  });
+
+  it('recusa nome repetido dentro do próprio lote, ignorando caixa', async () => {
+    const result = await raw('add_skill', {
+      skills: [
+        { name: 'Go', category: 'language' },
+        { name: 'go', category: 'language' },
+      ],
+      confirm: true,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/skills\[1\]/);
+  });
+
+  it('aceita evidência que aponta para experiência já existente junto com outras skills', async () => {
+    await call('add_skill', {
+      skills: [
+        { name: 'Go', category: 'language', evidence: [{ type: 'experience', ref: 'acme-2023' }] },
+        { name: 'Rust', category: 'language' },
+      ],
+      confirm: true,
+    });
+
+    expect((await skills()).map((s) => s.name)).toEqual(['TypeScript', 'Go', 'Rust']);
   });
 });
 
@@ -339,7 +400,7 @@ describe('add_education', () => {
   it('sem confirm mostra o que faria e não escreve', async () => {
     const antes = await h.readCareer();
 
-    const result = await call('add_education', { education: FORMACAO });
+    const result = await call('add_education', { education: [FORMACAO] });
 
     expect(result.applied).toBe(false);
     expect(result.changes).toEqual([
@@ -349,7 +410,7 @@ describe('add_education', () => {
   });
 
   it('com confirm grava não verificada, com end null por padrão', async () => {
-    const result = await call('add_education', { education: FORMACAO, confirm: true });
+    const result = await call('add_education', { education: [FORMACAO], confirm: true });
 
     expect(result.applied).toBe(true);
     expect((await education()).find((e) => e.id === 'fiap-2020')).toMatchObject({
@@ -361,7 +422,7 @@ describe('add_education', () => {
 
   it('recusa id que já existe', async () => {
     const result = await raw('add_education', {
-      education: { ...FORMACAO, id: 'usp-2015' },
+      education: [{ ...FORMACAO, id: 'usp-2015' }],
       confirm: true,
     });
 
@@ -371,11 +432,20 @@ describe('add_education', () => {
 
   it('recusa end anterior a start', async () => {
     const result = await raw('add_education', {
-      education: { ...FORMACAO, end: '01/01/2019' },
+      education: [{ ...FORMACAO, end: '01/01/2019' }],
       confirm: true,
     });
 
     expect(result.isError).toBe(true);
+  });
+
+  it('grava várias numa chamada', async () => {
+    await call('add_education', {
+      education: [FORMACAO, { ...FORMACAO, id: 'fiap-2022', degree: 'Pós' }],
+      confirm: true,
+    });
+
+    expect((await education()).map((e) => e.id)).toEqual(['usp-2015', 'fiap-2020', 'fiap-2022']);
   });
 });
 
@@ -478,7 +548,7 @@ describe('add_certification', () => {
   it('sem confirm mostra o que faria e não escreve', async () => {
     const antes = await h.readCareer();
 
-    const result = await call('add_certification', { certification: CERTIFICACAO });
+    const result = await call('add_certification', { certifications: [CERTIFICACAO] });
 
     expect(result.changes).toEqual([
       expect.objectContaining({ path: 'certifications[cka]', kind: 'added' }),
@@ -488,7 +558,7 @@ describe('add_certification', () => {
 
   it('com confirm grava não verificada, com expires_at null por padrão', async () => {
     const result = await call('add_certification', {
-      certification: CERTIFICACAO,
+      certifications: [CERTIFICACAO],
       confirm: true,
     });
 
@@ -501,7 +571,7 @@ describe('add_certification', () => {
 
   it('recusa id que já existe', async () => {
     const result = await raw('add_certification', {
-      certification: { ...CERTIFICACAO, id: 'aws-saa' },
+      certifications: [{ ...CERTIFICACAO, id: 'aws-saa' }],
       confirm: true,
     });
 
@@ -511,11 +581,20 @@ describe('add_certification', () => {
 
   it('recusa expires_at anterior a issued_at', async () => {
     const result = await raw('add_certification', {
-      certification: { ...CERTIFICACAO, expires_at: '01/01/2025' },
+      certifications: [{ ...CERTIFICACAO, expires_at: '01/01/2025' }],
       confirm: true,
     });
 
     expect(result.isError).toBe(true);
+  });
+
+  it('grava várias numa chamada', async () => {
+    await call('add_certification', {
+      certifications: [CERTIFICACAO, { ...CERTIFICACAO, id: 'ckad', name: 'CKAD' }],
+      confirm: true,
+    });
+
+    expect((await certifications()).map((c) => c.id)).toEqual(['aws-saa', 'cka', 'ckad']);
   });
 });
 
@@ -593,7 +672,7 @@ describe('add_language', () => {
   it('sem confirm mostra o que faria e não escreve', async () => {
     const antes = await h.readCareer();
 
-    const result = await call('add_language', { language: { name: 'Espanhol', level: 'A2' } });
+    const result = await call('add_language', { languages: [{ name: 'Espanhol', level: 'A2' }] });
 
     expect(result.changes).toEqual([
       expect.objectContaining({ path: 'languages[Espanhol]', kind: 'added' }),
@@ -602,7 +681,7 @@ describe('add_language', () => {
   });
 
   it('com confirm grava e versiona', async () => {
-    await call('add_language', { language: { name: 'Espanhol', level: 'A2' }, confirm: true });
+    await call('add_language', { languages: [{ name: 'Espanhol', level: 'A2' }], confirm: true });
 
     expect(await languages()).toEqual([
       { name: 'Inglês', level: 'B2' },
@@ -613,7 +692,7 @@ describe('add_language', () => {
 
   it('recusa idioma que já existe, ignorando maiúsculas', async () => {
     const result = await raw('add_language', {
-      language: { name: 'inglês', level: 'C1' },
+      languages: [{ name: 'inglês', level: 'C1' }],
       confirm: true,
     });
 
@@ -623,11 +702,36 @@ describe('add_language', () => {
 
   it('recusa level fora do CEFR', async () => {
     const result = await raw('add_language', {
-      language: { name: 'Francês', level: 'fluente' },
+      languages: [{ name: 'Francês', level: 'fluente' }],
       confirm: true,
     });
 
     expect(result.isError).toBe(true);
+  });
+
+  it('grava vários numa chamada', async () => {
+    await call('add_language', {
+      languages: [
+        { name: 'Espanhol', level: 'A2' },
+        { name: 'Francês', level: 'A1' },
+      ],
+      confirm: true,
+    });
+
+    expect((await languages()).map((l) => l.name)).toEqual(['Inglês', 'Espanhol', 'Francês']);
+  });
+
+  it('recusa idioma repetido dentro do próprio lote', async () => {
+    const result = await raw('add_language', {
+      languages: [
+        { name: 'Espanhol', level: 'A2' },
+        { name: 'ESPANHOL', level: 'B1' },
+      ],
+      confirm: true,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(/languages\[1\]/);
   });
 });
 
