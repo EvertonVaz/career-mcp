@@ -297,6 +297,32 @@ src/
   test/                  harness MCP e GitHub falso
 ```
 
+## Contribuindo
+
+Toda contribuição começa por uma [issue](https://github.com/EvertonVaz/career-mcp/issues).
+Bug, ideia de tool, melhoria na documentação: abra a issue antes de escrever
+código.
+
+1. **Abra uma issue** descrevendo o problema ou a proposta. Para bug, inclua
+   como reproduzir e o que esperava acontecer. Para feature, conte o caso de
+   uso — o porquê importa mais que o como.
+2. **Espere o alinhamento na issue.** É ali que se decide se a mudança entra
+   e qual o caminho. Isso evita trabalho perdido num PR que não encaixa no
+   projeto.
+3. **Envie a contribuição referenciando a issue** (`Closes #123` na descrição
+   do PR).
+
+O que se espera do PR:
+
+- Teste primeiro: comportamento novo chega com teste, e os testes batem em
+  HTTP real, sem mock de Octokit (veja [Decisões de arquitetura](#decisões-de-arquitetura)).
+- `npm test` e `npm run typecheck` passando.
+- Commits em inglês, no imperativo e concisos (`Add education write tools`).
+- Escopo fechado no que a issue combinou.
+
+Ao contribuir, você concorda que sua contribuição é licenciada sob a mesma
+licença do projeto.
+
 ## Licença
 
 [AGPL-3.0](LICENSE). Você pode usar, modificar e redistribuir, mas qualquer
