@@ -5,6 +5,8 @@ dist/
 data/
 output/
 cache/
+# Cópia dos snapshots de produção para a migração do histórico. Dado pessoal.
+history-import/
 
 .env
 *.log
