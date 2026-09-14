@@ -17,6 +17,10 @@ sai genérica.
 
 O problema não é falta de experiência. É falta de registro.
 
+<p align="center">
+  <img src="docs/images/claude-code-carreira.png" alt="Claude Code respondendo &quot;o que você sabe sobre a minha carreira até aqui?&quot; com perfil e linha do tempo tirados do career.yml" width="600">
+</p>
+
 ## O que ele faz por você
 
 - **Prepara entrevistas:** cada projeto guarda `problem`, `solution` e
