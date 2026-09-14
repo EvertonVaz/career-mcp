@@ -1,18 +1,48 @@
 # career-mcp
 
-Servidor MCP que mantém LinkedIn, currículo e portfólio coerentes entre si, a
-partir de um `career.yml` versionado em Git e do GitHub como feed de evidências.
+**Sua carreira como dado verificável, que o seu agente consegue consultar,
+explicar e defender em entrevista.**
 
-Transporte **Streamable HTTP**, stateless. Roda no homelab atrás do Tailscale,
-com TLS terminado no Traefik do Coolify.
+Um servidor MCP que guarda o que você construiu, de onde veio cada informação
+e o impacto que teve. Com isso, qualquer agente conectado a ele consegue te
+ajudar a falar sobre a sua trajetória sem inventar nada.
 
-## A regra que rege o projeto
+## O problema
+
+Você constrói muita coisa e esquece metade. O projeto de dois anos atrás
+resolveu um problema real, mas hoje você não lembra o número que mudou. O
+LinkedIn diz uma data, o currículo diz outra e o portfólio nem cita aquele
+repo. Na entrevista, quando pedem "me conta de um projeto difícil", a resposta
+sai genérica.
+
+O problema não é falta de experiência. É falta de registro.
+
+## O que ele faz por você
+
+- **Prepara entrevistas:** cada projeto guarda `problem`, `solution` e
+  `result`, e o agente monta a narrativa a partir disso, não da imaginação.
+- **Explica o que você construiu:** stacks, evidências e skills ficam ligados
+  aos projetos que as comprovam.
+- **Adapta o currículo a uma vaga:** cruza os requisitos com o que você
+  realmente fez.
+- **Mantém os canais coerentes:** LinkedIn, currículo e portfólio saem da
+  mesma fonte, e o `diff_channels` aponta o que ficou desatualizado.
+- **Acompanha a carreira sem esforço:** o GitHub alimenta sugestões de
+  projetos, skills e experiências, que você só revisa e aprova.
+- **Cobra o que falta:** a auditoria trimestral valida os dados e lista as
+  pendências.
+
+## Como funciona
+
+### Uma fonte de verdade
 
 `data/career.yml` é a única fonte de verdade. Tudo o mais é derivado e
-descartável: `output/` se regenera, `cache/` se refaz com um sync, `history/`
-guarda o que foi sobrescrito.
+descartável: `output/` se regenera, `cache/` se refaz com um sync. O histórico
+vive num repositório Git dentro de `data/`.
 
-Nada entra sem procedência. Cada entidade carrega:
+### Nada entra sem procedência
+
+Cada entidade carrega:
 
 ```yaml
 provenance:
@@ -22,11 +52,19 @@ provenance:
   last_synced_at: 2026-09-12T11:00:00Z
 ```
 
-O GitHub nunca escreve `problem`, `solution`, `result` nem bullet de
-experiência — ele não sabe disso. O que ele oferece vira proposta com
-`verified: false`, e só vira fato via `mark_verified`.
+### GitHub é evidência, não verdade
 
-## Rodando local
+O GitHub nunca escreve `problem`, `solution`, `result` nem bullet de
+experiência, porque ele não sabe disso. O que ele oferece vira proposta com
+`verified: false` e só vira fato via `mark_verified`.
+
+### Nenhuma escrita às cegas
+
+Toda tool de escrita mostra o diff antes e só grava com `confirm: true`. Cada
+gravação vira um commit no Git de `data/`, então `git log career.yml` é a
+linha do tempo da sua carreira.
+
+## Quickstart
 
 ```bash
 npm install
@@ -36,14 +74,35 @@ npm run dev
 
 Gere o token com `openssl rand -hex 32`.
 
+Conecte o seu cliente MCP. No Claude Code:
+
 ```bash
-npm test            # 352 testes
-npm run typecheck
-npm run build       # tsup -> dist/server.js
-npm start
+claude mcp add --transport http career-mcp http://localhost:3000/mcp \
+  --header "Authorization: Bearer SEU_TOKEN"
 ```
 
-Um `data/career.yml` mínimo para começar:
+Em clientes configurados por JSON (Cursor, VS Code e afins), o formato
+costuma ser:
+
+```json
+{
+  "mcpServers": {
+    "career-mcp": {
+      "url": "http://localhost:3000/mcp",
+      "headers": { "Authorization": "Bearer SEU_TOKEN" }
+    }
+  }
+}
+```
+
+> **Compatibilidade:** a autenticação é por bearer token. Funciona em
+> clientes MCP que aceitam header de autorização via Streamable HTTP. Clientes
+> que exigem OAuth, como os conectores web de alguns assistentes, ainda não
+> conectam.
+
+Com o cliente conectado, rode o prompt `criar-perfil`. Ele coleta o básico e
+cria o `career.yml`. Se preferir começar na mão, este é um `data/career.yml`
+mínimo:
 
 ```yaml
 profile:
@@ -59,7 +118,18 @@ experiences:
 Datas são sempre `DD/MM/YYYY` em string. `end` ausente ou `null` significa
 cargo atual.
 
-## Variáveis de ambiente
+### Desenvolvimento
+
+```bash
+npm test            # 352 testes
+npm run typecheck
+npm run build       # tsup -> dist/server.js
+npm start
+```
+
+## Referência
+
+### Variáveis de ambiente
 
 | var | default | para quê |
 |---|---|---|
@@ -68,27 +138,26 @@ cargo atual.
 | `MCP_AUTH_TOKEN` | — | **obrigatória**; bearer token de `/mcp` |
 | `GITHUB_TOKEN` | — | PAT; só as tools de GitHub precisam |
 | `GITHUB_API_URL` | api.github.com | só para GitHub Enterprise |
-| `CAREER_DATA_DIR` | `/app/data` | canônico |
-| `CAREER_HISTORY_DIR` | `/app/history` | snapshots |
+| `CAREER_DATA_DIR` | `/app/data` | canônico; também é o repo Git do histórico |
 | `CAREER_OUTPUT_DIR` | `/app/output` | gerados |
 | `CAREER_CACHE_DIR` | `/app/cache` | cache do GitHub |
 
-O `.env` é lido nativamente pelo Node. No container ele não existe: o Coolify
-injeta as vars direto.
+O `.env` é lido nativamente pelo Node. No container ele não existe: as vars
+são injetadas direto.
 
-## Rotas
+### Rotas
 
 | rota | auth | o que faz |
 |---|---|---|
 | `POST /mcp` | bearer | JSON-RPC do MCP |
 | `GET /mcp` | bearer | 405 — sem SSE, o servidor é stateless |
 | `DELETE /mcp` | bearer | no-op |
-| `GET /health` | isenta | healthcheck do Coolify |
+| `GET /health` | isenta | healthcheck |
 
 O token é comparado por SHA-256 com `timingSafeEqual`. O 401 é genérico e não
 manda `WWW-Authenticate`.
 
-## Resources
+### Resources
 
 | uri | conteúdo |
 |---|---|
@@ -97,7 +166,7 @@ manda `WWW-Authenticate`.
 | `github://activity` | último relatório de atividade (cache) |
 | `output://linkedin` `resume` `portfolio` | última geração |
 
-## Tools
+### Tools
 
 **Leitura** — `search_experiences`, `search_projects`, `search_skills`,
 `validate_all`.
@@ -112,12 +181,17 @@ tem os dois.
 `add_project`, `update_project`, `delete_project`, `add_skill`,
 `update_skill`, `mark_verified`.
 
-Todas param no diff sem `confirm: true`. Com confirm, tiram snapshot em
-`history/` antes de gravar. Patch substitui array inteiro, não mescla.
-Remover algo que uma skill cita como evidência é recusado.
+Todas param no diff sem `confirm: true`. Com confirm, gravam e commitam no
+Git de `data/`: título `<tool>: <path>`, corpo com cada mudança. Patch
+substitui array inteiro, não mescla. Remover algo que uma skill cita como
+evidência é recusado.
+
+Se o `career.yml` tiver mudança não commitada — edição manual, por exemplo —,
+ela entra num commit próprio (`Record changes made outside career-mcp`) antes
+da escrita da tool. Só o `career.yml` é versionado; o `private.yml` nunca.
 
 As `add_*` recebem lista (`experiences`, `education`, `certifications`,
-`languages`, `projects`, `skills`) de 1 a 50 itens: uma escrita, um snapshot,
+`languages`, `projects`, `skills`) de 1 a 50 itens: uma escrita, um commit,
 tudo ou nada.
 
 `update_profile` é a única que cria o `career.yml` quando ele não existe
@@ -138,58 +212,48 @@ Geração não pede confirm: `output/` é descartável. `diff_channels` marca ca
 canal como `missing`, `stale` ou `current` — os três saem da mesma fonte,
 então o que desencontra é arquivo gerado antes de uma edição.
 
-## Prompts
+### Prompts
 
 - `criar-perfil` — guia inicial: coleta o profile e cria o `career.yml`
 - `atualizar-linkedin-com-github` — sync, revisão, aprovação, geração
 - `tailor-resume` (arg: `vaga`) — extrai requisitos, cruza com o career.yml
 - `auditoria-trimestral` — valida, cobra o que falta, confirma pendências
 
-## Deploy no Coolify
+## Self-host
 
-Build pelo `Dockerfile` da raiz: multi-stage, runtime `node:25-alpine`,
-usuário não-root, healthcheck em `/health`.
+Build pelo `Dockerfile` da raiz: multi-stage, runtime `node:25-alpine` com
+`git`, usuário não-root, healthcheck em `/health`.
 
 Storages a montar:
 
 ```
 ./data:/app/data
-./history:/app/history
 ./output:/app/output
 ./cache:/app/cache
 ```
 
+`data/` carrega o repo Git do histórico: é o único volume que precisa de
+backup. Um `git remote add` + `git push` para um repo privado resolve.
+
 Variáveis: `MCP_AUTH_TOKEN`, `GITHUB_TOKEN` e os `CAREER_*` se quiser mudar os
 paths.
 
-TLS fica no Traefik do Coolify, com Let's Encrypt por DNS challenge no
-Cloudflare. O app serve HTTP puro — não configure TLS aqui.
+O app serve HTTP puro. TLS fica no reverse proxy — não configure TLS aqui.
 
-Acesso só pela Tailscale; o domínio aponta para o IP da tailnet.
+### Exemplo: homelab com Coolify + Tailscale
 
-## Estrutura
+É assim que o projeto roda em produção hoje:
 
-```
-src/
-  server.ts              bootstrap
-  config.ts              env -> Config (sem efeito colateral no import)
-  http/                  app express, auth, transport
-  mcp/
-    resources/           career, github, output
-    tools/               read, write, github, generators, tailor, validate
-    prompts/             os três roteiros
-    server.ts            factory do McpServer (uma por requisição)
-  lib/
-    schema.ts            Zod + integridade referencial
-    loader.ts            load/save com write atômico
-    history.ts           snapshot + diff estrutural
-    github.ts            wrapper Octokit
-    coherence.ts         staleness dos canais
-  templates/             linkedin, resume, portfolio
-  test/                  harness MCP e GitHub falso
-```
+- Deploy pelo Coolify, com as vars injetadas direto no container.
+- TLS no Traefik do Coolify, com Let's Encrypt por DNS challenge no
+  Cloudflare.
+- Acesso só pela Tailscale; o domínio aponta para o IP da tailnet.
 
-## Notas de implementação
+## Decisões de arquitetura
+
+**YAML versionado em Git, sem banco.** O servidor é single-user e o volume é
+de dezenas de entidades. Um arquivo dá diff e histórico de graça, é portável e
+editável na mão, e não exige subir nenhum serviço extra.
 
 **Stateless de verdade.** Cada `POST /mcp` cria um `McpServer` e um transport
 novos e lê o YAML do disco. Reaproveitar instância entre transports
@@ -210,3 +274,31 @@ Nunca existe um `career.yml` parcial em disco.
 **Testes batem em HTTP real.** O harness sobe o servidor numa porta efêmera e
 conecta o client oficial do SDK; as tools de GitHub rodam contra um servidor
 local que imita a API, com paginação por header `Link`. Sem mock de Octokit.
+
+## Estrutura
+
+```
+src/
+  server.ts              bootstrap
+  config.ts              env -> Config (sem efeito colateral no import)
+  http/                  app express, auth, transport
+  mcp/
+    resources/           career, github, output
+    tools/               read, write, github, generators, tailor, validate
+    prompts/             os quatro roteiros
+    server.ts            factory do McpServer (uma por requisição)
+  lib/
+    schema.ts            Zod + integridade referencial
+    loader.ts            load/save com write atômico
+    history.ts           diff estrutural + commit no Git do data dir
+    github.ts            wrapper Octokit
+    coherence.ts         staleness dos canais
+  templates/             linkedin, resume, portfolio
+  test/                  harness MCP e GitHub falso
+```
+
+## Licença
+
+[AGPL-3.0](LICENSE). Você pode usar, modificar e redistribuir, mas qualquer
+versão modificada, inclusive oferecida como serviço pela rede, precisa ter o
+código aberto sob a mesma licença.
