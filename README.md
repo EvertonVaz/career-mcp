@@ -1,11 +1,12 @@
 # career-mcp
 
-**Sua carreira como dado verificável, que o seu agente consegue consultar,
-explicar e defender em entrevista.**
+**Um MCP que acompanha a sua carreira e mantém seus dados atualizados
+enquanto você trabalha.**
 
-Um servidor MCP que guarda o que você construiu, de onde veio cada informação
-e o impacto que teve. Com isso, qualquer agente conectado a ele consegue te
-ajudar a falar sobre a sua trajetória sem inventar nada.
+Conte ao seu agente o que você entregou e ele registra na hora. Conecte o
+GitHub e os projetos novos chegam como sugestão para você aprovar. Currículo,
+LinkedIn e portfólio saem sempre da versão mais recente, e qualquer agente
+conectado explica a sua trajetória sem inventar nada.
 
 ## O problema
 
@@ -23,16 +24,17 @@ O problema não é falta de experiência. É falta de registro.
 
 ## O que ele faz por você
 
+- **Registra enquanto você trabalha:** entregou algo, mudou de cargo, tirou
+  uma certificação? Diga ao agente no meio da conversa e ele grava, com diff e
+  commit.
+- **Acompanha o GitHub por você:** repos e atividade viram sugestões de
+  projetos, skills e experiências, que você só revisa e aprova.
+- **Mantém os canais em dia:** LinkedIn, currículo e portfólio saem da mesma
+  fonte, e o `diff_channels` aponta o que ficou desatualizado.
 - **Prepara entrevistas:** cada projeto guarda `problem`, `solution` e
   `result`, e o agente monta a narrativa a partir disso, não da imaginação.
-- **Explica o que você construiu:** stacks, evidências e skills ficam ligados
-  aos projetos que as comprovam.
 - **Adapta o currículo a uma vaga:** cruza os requisitos com o que você
   realmente fez.
-- **Mantém os canais coerentes:** LinkedIn, currículo e portfólio saem da
-  mesma fonte, e o `diff_channels` aponta o que ficou desatualizado.
-- **Acompanha a carreira sem esforço:** o GitHub alimenta sugestões de
-  projetos, skills e experiências, que você só revisa e aprova.
 - **Cobra o que falta:** a auditoria trimestral valida os dados e lista as
   pendências.
 
