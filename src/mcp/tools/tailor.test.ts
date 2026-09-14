@@ -59,6 +59,16 @@ beforeAll(async () => {
 
 afterAll(() => h.close());
 
+describe('tailor_for_job e cópia local', () => {
+  it('instrui o agente a oferecer uma cópia local do currículo gerado', async () => {
+    const { tools } = await h.client.listTools();
+    const description = tools.find((t) => t.name === 'tailor_for_job')?.description;
+
+    expect(description).toMatch(/pergunte se (ele|o usuário) quer uma cópia local/i);
+    expect(description).toMatch(/resume/);
+  });
+});
+
 beforeEach(async () => {
   await h.writeCareer(CAREER);
   await rm(h.outputDir, { recursive: true, force: true });

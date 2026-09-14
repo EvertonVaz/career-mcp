@@ -65,6 +65,18 @@ const generate = (channel: string, args: Record<string, unknown> = {}): Promise<
 const statusOf = (result: DiffResult, channel: string): ChannelStatus | undefined =>
   result.channels.find((item) => item.channel === channel);
 
+describe('generate_* e cópia local', () => {
+  it('instrui o agente a oferecer uma cópia local do conteúdo gerado', async () => {
+    const { tools } = await h.client.listTools();
+
+    for (const channel of ['linkedin', 'resume', 'portfolio']) {
+      const description = tools.find((t) => t.name === `generate_${channel}`)?.description;
+      expect(description).toMatch(/pergunte se (ele|o usuário) quer uma cópia local/i);
+      expect(description).toMatch(/content/);
+    }
+  });
+});
+
 describe('generate_resume', () => {
   it('grava em output/ e devolve o conteúdo', async () => {
     const result = await generate('resume');

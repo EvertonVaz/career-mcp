@@ -11,6 +11,17 @@ const DESCRIPTION: Record<Channel, string> = {
   portfolio: 'projetos com problema, solução e resultado, destacados primeiro',
 };
 
+/**
+ * output/ fica no servidor, fora do alcance de quem conversa com o agente. Sem
+ * essa instrução o agente responde "gerado em /app/output/resume.md" e o
+ * usuário fica sem o arquivo.
+ */
+export function localCopyHint(field: string): string {
+  return `O arquivo gravado fica no servidor, onde o usuário não tem acesso.
+Depois de gerar, mostre o conteúdo (campo ${field}) ao usuário e
+pergunte se ele quer uma cópia local. Só salve no filesystem dele se ele aceitar.`;
+}
+
 export function registerGeneratorTools(server: McpServer, config: Config): void {
   for (const channel of CHANNELS) {
     server.registerTool(
@@ -24,7 +35,9 @@ Só usa o que está no career.yml — não completa lacuna. O que falta aparece
 marcado como pendência.
 
 Não pede confirm: output/ é derivado e descartável, dá para regerar a
-qualquer momento. O canônico é data/career.yml.`,
+qualquer momento. O canônico é data/career.yml.
+
+${localCopyHint('content')}`,
         inputSchema: {},
         outputSchema: {
           channel: z.string(),

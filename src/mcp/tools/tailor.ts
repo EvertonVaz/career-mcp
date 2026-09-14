@@ -6,6 +6,7 @@ import type { Config } from '../../config.js';
 import { loadCareer } from '../../lib/loader.js';
 import type { Career } from '../../lib/schema.js';
 import { renderResume } from '../../templates/resume.js';
+import { localCopyHint } from './generators.js';
 
 type Evidence = { type: 'skill' | 'experience' | 'project'; ref: string; where: string };
 type Match = { term: string; evidence: Evidence[] };
@@ -89,7 +90,9 @@ Retorna:
   - resume: o currículo renderizado nessa ordem
 
 Grava em output/resume-tailored.md, sem tocar no resume.md. Nenhum conteúdo
-novo é criado: só reordena e recorta o que já está no career.yml.`,
+novo é criado: só reordena e recorta o que já está no career.yml.
+
+${localCopyHint('resume')}`,
       inputSchema: {
         terms: z
           .array(z.string().min(1))
