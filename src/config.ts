@@ -13,7 +13,6 @@ export type Config = {
     readonly data: string;
     readonly career: string;
     readonly private: string;
-    readonly history: string;
     readonly output: string;
     readonly cache: string;
   };
@@ -55,7 +54,6 @@ export function loadConfig(env: Env = process.env): Config {
       data: dataDir,
       career: path.join(dataDir, 'career.yml'),
       private: path.join(dataDir, 'private.yml'),
-      history: env.CAREER_HISTORY_DIR ?? '/app/history',
       output: env.CAREER_OUTPUT_DIR ?? '/app/output',
       cache: env.CAREER_CACHE_DIR ?? '/app/cache',
     },

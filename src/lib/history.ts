@@ -1,6 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { Career } from './schema.js';
 
 export type Change = {
@@ -10,14 +11,6 @@ export type Change = {
   before?: unknown;
   /** Em 'moved', a posição nova. */
   after?: unknown;
-};
-
-export type Snapshot = {
-  timestamp: string;
-  /** Cópia do arquivo como estava antes da escrita. */
-  file: string;
-  /** JSON com as mudanças que motivaram o snapshot. */
-  diff: string;
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -127,41 +120,91 @@ export function diffCareer(before: Career, after: Career): Change[] {
   return changes;
 }
 
+/** Título do commit que registra o que mudou no career.yml fora das tools. */
+export const OUTSIDE_CHANGES = 'Record changes made outside career-mcp';
+
+const execFileAsync = promisify(execFile);
+
 /**
- * Copia o arquivo atual para history/ antes de qualquer escrita. Copia bytes
- * crus, sem reparsear: se o arquivo estiver corrompido, é justamente o estado
- * que queremos poder recuperar. Devolve null na primeira escrita, quando não
- * há nada a preservar.
+ * Variáveis que apontam o git para outro repositório. Herdadas de um hook —
+ * rodar os testes num pre-commit, por exemplo —, fariam o commit cair no repo
+ * errado.
  */
-export async function snapshotBeforeWrite(
-  historyDir: string,
-  filePath: string,
-  changes: Change[],
-): Promise<Snapshot | null> {
-  const timestamp = new Date().toISOString();
-  // UUID curto no nome porque duas escritas podem cair no mesmo milissegundo.
-  const stamp = `${timestamp.replaceAll(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
-  const base = path.basename(filePath, path.extname(filePath));
+const REPO_ENV = new Set([
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_COMMON_DIR',
+]);
 
-  await mkdir(historyDir, { recursive: true });
-
-  const snapshot: Snapshot = {
-    timestamp,
-    file: path.join(historyDir, `${stamp}-${base}${path.extname(filePath)}`),
-    diff: path.join(historyDir, `${stamp}-${base}.diff.json`),
-  };
-
-  try {
-    await copyFile(filePath, snapshot.file);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
-
-  await writeFile(
-    snapshot.diff,
-    `${JSON.stringify({ timestamp, source: filePath, changes }, null, 2)}\n`,
+async function git(dir: string, args: string[]): Promise<string> {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !REPO_ENV.has(key)),
   );
 
-  return snapshot;
+  const { stdout } = await execFileAsync(
+    'git',
+    [
+      '-C',
+      dir,
+      // Volume montado com outro dono faz o git recusar o repo ("dubious ownership").
+      '-c',
+      `safe.directory=${path.resolve(dir)}`,
+      // Autor fixo. GIT_AUTHOR_NAME e afins no ambiente continuam valendo por cima.
+      '-c',
+      'user.name=career-mcp',
+      '-c',
+      'user.email=career-mcp@localhost',
+      '-c',
+      'commit.gpgsign=false',
+      ...args,
+    ],
+    { env },
+  );
+
+  return stdout;
+}
+
+async function commit(filePath: string, message: string[]): Promise<void> {
+  const dir = path.dirname(filePath);
+  const file = path.basename(filePath);
+
+  await git(dir, ['add', '--', file]);
+  // Pathspec no commit: só o career.yml entra, mesmo que haja outra coisa no
+  // índice. private.yml mora no mesmo diretório e nunca pode ser versionado.
+  await git(dir, ['commit', '--quiet', ...message.flatMap((part) => ['-m', part]), '--', file]);
+}
+
+/**
+ * Chame dentro do lock, antes de gravar. Garante que o diretório do career.yml
+ * é um repo e commita à parte o que estiver pendente — edição manual ou um
+ * commit que falhou —, para a próxima escrita não levar a autoria disso.
+ *
+ * Falhar aqui aborta a escrita: sem git funcionando não há como recuperar o
+ * estado anterior, e gravar assim seria perder histórico calado.
+ */
+export async function prepareHistory(filePath: string): Promise<void> {
+  const dir = path.dirname(filePath);
+
+  try {
+    await access(path.join(dir, '.git'));
+  } catch {
+    await git(dir, ['init', '--quiet', '--initial-branch=main']);
+  }
+
+  const pending = await git(dir, ['status', '--porcelain', '--', path.basename(filePath)]);
+  if (pending.trim() !== '') await commit(filePath, [OUTSIDE_CHANGES]);
+}
+
+/**
+ * Commita a escrita que acabou de acontecer. Título curto para o `git log
+ * --oneline` servir de linha do tempo; o corpo lista cada mudança.
+ */
+export async function commitCareer(filePath: string, tool: string, changes: Change[]): Promise<void> {
+  const extra = changes.length > 1 ? ` (+${changes.length - 1})` : '';
+  const title = `${tool}: ${changes[0]?.path ?? ''}${extra}`;
+  const body = changes.map((change) => `${change.kind} ${change.path}`).join('\n');
+
+  await commit(filePath, [title, body]);
 }

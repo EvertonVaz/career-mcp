@@ -3,7 +3,6 @@ dist/
 
 # Volumes do container. Os dados reais vivem no homelab, versionados à parte.
 data/
-history/
 output/
 cache/
 

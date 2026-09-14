@@ -1,5 +1,5 @@
-import { readdir, rm } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { OUTSIDE_CHANGES } from '../../lib/history.js';
 import { startFakeGithub, type FakeGithub } from '../../test/github-fake.js';
 import { startHarness, type Harness } from '../../test/harness.js';
 
@@ -65,7 +65,7 @@ afterAll(async () => {
 beforeEach(async () => {
   github.reset();
   await h.writeCareer(CAREER);
-  await rm(h.historyDir, { recursive: true, force: true });
+  await h.resetHistory();
 });
 
 const importRepo = (args: Record<string, unknown>): Promise<ImportResult> =>
@@ -181,15 +181,18 @@ describe('import_github_repo — atualização', () => {
     expect(Date.now() - Date.parse(synced)).toBeLessThan(5000);
   });
 
-  it('tira snapshot antes de sobrescrever', async () => {
+  it('commita o estado anterior e a sobrescrita', async () => {
     github.setRepos([{ name: 'career-mcp', language: 'Go' }]);
 
     await importRepo({ repo: 'etovaz/career-mcp', confirm: true });
 
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([
+      expect.stringMatching(/^import_github_repo: projects\[career-mcp\]/),
+      OUTSIDE_CHANGES,
+    ]);
   });
 
-  it('re-importar sem mudança só move o carimbo de sync, sem versionar', async () => {
+  it('re-importar sem mudança só move o carimbo de sync, e isso também é commitado', async () => {
     github.setRepos([{ name: 'career-mcp', language: 'TypeScript' }]);
     await h.writeCareer(
       CAREER_COM_PROJETO.replace(
@@ -207,8 +210,12 @@ describe('import_github_repo — atualização', () => {
     expect(result.changes?.map((c) => c.path)).toEqual([
       'projects[career-mcp].provenance.last_synced_at',
     ]);
-    // Nada de conteúdo mudou: o history nem chega a ser criado.
-    await expect(readdir(h.historyDir)).rejects.toThrow();
+    // Sem commit, o carimbo ficaria pendente e seria atribuído à próxima escrita
+    // como mudança externa.
+    expect(await h.commits()).toEqual([
+      'import_github_repo: projects[career-mcp].provenance.last_synced_at',
+      OUTSIDE_CHANGES,
+    ]);
   });
 });
 

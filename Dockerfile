@@ -25,13 +25,16 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# O histórico do career.yml é um repo Git dentro de /app/data.
+RUN apk add --no-cache git
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY package.json ./
 
 # Pontos de montagem dos volumes do Coolify. Criados aqui para existirem com o
 # dono certo mesmo antes do primeiro mount.
-RUN mkdir -p /app/data /app/history /app/output /app/cache && chown -R node:node /app
+RUN mkdir -p /app/data /app/output /app/cache && chown -R node:node /app
 
 USER node
 

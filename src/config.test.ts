@@ -19,22 +19,14 @@ describe('loadConfig', () => {
     expect(config.port).toBe(3000);
     expect(config.host).toBe('0.0.0.0');
     expect(config.paths.career).toBe('/app/data/career.yml');
-    expect(config.paths.history).toBe('/app/history');
   });
 
   it('respeita MCP_HOST', () => {
     expect(loadConfig({ ...MINIMAL, MCP_HOST: '127.0.0.1' }).host).toBe('127.0.0.1');
   });
 
-  it('respeita CAREER_HISTORY_DIR e CAREER_OUTPUT_DIR', () => {
-    const config = loadConfig({
-      ...MINIMAL,
-      CAREER_HISTORY_DIR: './history',
-      CAREER_OUTPUT_DIR: './output',
-    });
-
-    expect(config.paths.history).toBe('./history');
-    expect(config.paths.output).toBe('./output');
+  it('respeita CAREER_OUTPUT_DIR', () => {
+    expect(loadConfig({ ...MINIMAL, CAREER_OUTPUT_DIR: './output' }).paths.output).toBe('./output');
   });
 
   it('respeita CAREER_CACHE_DIR', () => {

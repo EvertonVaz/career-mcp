@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { loadConfig } from '../config.js';
@@ -8,17 +10,22 @@ import { createApp } from '../http/app.js';
 
 const TOKEN = 'token-de-teste';
 
+const execFileAsync = promisify(execFile);
+
 export type Harness = {
   /** Client oficial do SDK, para os casos que precisam da resposta crua. */
   client: Client;
   dir: string;
   careerPath: string;
-  historyDir: string;
   cacheDir: string;
   outputDir: string;
   writeCareer(yaml: string): Promise<void>;
   removeCareer(): Promise<void>;
   readCareer(): Promise<string>;
+  /** Títulos dos commits do data dir, do mais novo ao mais antigo. Sem repo, []. */
+  commits(): Promise<string[]>;
+  /** Apaga o repo Git do data dir; cada teste precisa começar sem histórico. */
+  resetHistory(): Promise<void>;
   readResource(uri: string): Promise<unknown>;
   callTool<T>(name: string, args?: Record<string, unknown>): Promise<T>;
   close(): Promise<void>;
@@ -41,7 +48,6 @@ export async function startHarness(
     loadConfig({
       MCP_AUTH_TOKEN: TOKEN,
       CAREER_DATA_DIR: dir,
-      CAREER_HISTORY_DIR: path.join(dir, 'history'),
       CAREER_CACHE_DIR: path.join(dir, 'cache'),
       CAREER_OUTPUT_DIR: path.join(dir, 'output'),
       ...env,
@@ -64,7 +70,6 @@ export async function startHarness(
     client,
     dir,
     careerPath,
-    historyDir: path.join(dir, 'history'),
     cacheDir: path.join(dir, 'cache'),
     outputDir: path.join(dir, 'output'),
 
@@ -73,6 +78,23 @@ export async function startHarness(
     removeCareer: () => rm(careerPath),
 
     readCareer: () => readFile(careerPath, 'utf8'),
+
+    async commits() {
+      try {
+        const { stdout } = await execFileAsync('git', [
+          '--git-dir',
+          path.join(dir, '.git'),
+          'log',
+          '--all',
+          '--format=%s',
+        ]);
+        return stdout.split('\n').filter(Boolean);
+      } catch {
+        return [];
+      }
+    },
+
+    resetHistory: () => rm(path.join(dir, '.git'), { recursive: true, force: true }),
 
     async readResource(uri) {
       const [content] = (await client.readResource({ uri })).contents;

@@ -8,7 +8,7 @@ import {
   writeRepoCache,
   type Repo,
 } from '../../lib/github.js';
-import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
+import { commitCareer, diffCareer, prepareHistory, type Change } from '../../lib/history.js';
 import { loadCareer, saveCareer, withCareerLock } from '../../lib/loader.js';
 import { Project as ProjectSchema, type Career } from '../../lib/schema.js';
 
@@ -199,7 +199,7 @@ Sem confirm, não escreve nada: devolve o que faria.
     Não viram proposta de escrita — o que você escreveu vale mais que o
     metadado do repo. Corrija à mão se concordar.
 
-Com confirm: true, tira snapshot em history/ e grava as propostas como
+Com confirm: true, grava num commit do data dir as propostas como
 projetos novos, sempre com provenance.verified = false. Use accept para
 escolher quais: accept: ["etovaz/repo-a"]. Sem accept, aplica todas.
 
@@ -287,8 +287,9 @@ includeArchived. Por padrão ignora fork e arquivado.`,
         };
         const changes: Change[] = diffCareer(career, after);
 
-        await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
+        await prepareHistory(config.paths.career);
         await saveCareer(config.paths.career, after);
+        await commitCareer(config.paths.career, 'sync_github', changes);
 
         return respond({
           ...base,
@@ -319,8 +320,8 @@ Seu texto — problem, solution, result — nunca é tocado, e provenance.verifi
 continua como estava.
 
 Sem confirm não escreve: devolve divergences[] e o projeto como ficaria.
-Com confirm: true, tira snapshot em history/ e grava. Se nada mudaria, não
-escreve nem versiona.
+Com confirm: true, grava num commit do data dir. Se nada mudaria, não escreve
+nem versiona.
 
 asProject: { id, name } ajusta como o projeto entra. O id só vale na criação e
 falha se colidir com projeto existente.`,
@@ -348,8 +349,8 @@ falha se colidir com projeto existente.`,
       },
       annotations: {
         readOnlyHint: false,
-        // Em update sobrescreve campo já gravado, e isso não é reversível
-        // sem o history/.
+        // Em update sobrescreve campo já gravado, e isso só se desfaz pelo
+        // Git do data dir.
         destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
@@ -408,16 +409,11 @@ falha se colidir com projeto existente.`,
         const changes: Change[] = diffCareer(career, after);
         if (changes.length === 0) return respond({ ...base, applied: true, changes });
 
-        // Carimbo de sync sozinho não vira snapshot: history serve para recuperar
-        // conteúdo, e não há conteúdo a recuperar de um last_synced_at.
-        const substantive = changes.filter(
-          (change) => !change.path.endsWith('.provenance.last_synced_at'),
-        );
-        if (substantive.length > 0) {
-          await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
-        }
-
+        // Até carimbo de sync sozinho vira commit: sem isso o arquivo ficaria
+        // pendente e a próxima escrita o registraria como mudança externa.
+        await prepareHistory(config.paths.career);
         await saveCareer(config.paths.career, after);
+        await commitCareer(config.paths.career, 'import_github_repo', changes);
 
         return respond({ ...base, applied: true, changes });
       });

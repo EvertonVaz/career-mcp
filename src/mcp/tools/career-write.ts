@@ -2,7 +2,7 @@ import { access } from 'node:fs/promises';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Config } from '../../config.js';
-import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
+import { commitCareer, diffCareer, prepareHistory, type Change } from '../../lib/history.js';
 import { loadCareer, saveCareer, validateCareer, withCareerLock } from '../../lib/loader.js';
 import {
   BrDate,
@@ -27,6 +27,7 @@ type Skill = Career['skills'][number];
  */
 async function runWrite(
   config: Config,
+  tool: string,
   confirm: boolean,
   mutate: (career: Career) => Career,
   load: (filePath: string) => Promise<Career> = loadCareer,
@@ -40,8 +41,9 @@ async function runWrite(
 
     if (!confirm || changes.length === 0) return { applied: false, changes };
 
-    await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
+    await prepareHistory(config.paths.career);
     await saveCareer(config.paths.career, after);
+    await commitCareer(config.paths.career, tool, changes);
 
     return { applied: true, changes };
   });
@@ -149,7 +151,7 @@ function requireFreeId(items: { id: string }[], id: string, where: string, colle
 /** Teto por chamada: preview de diff maior que isso não cabe numa revisão. */
 const MAX_LOTE = 50;
 
-const LOTE_DESCRIPTION = `Recebe de 1 a ${MAX_LOTE} itens e grava numa escrita só, com um snapshot.
+const LOTE_DESCRIPTION = `Recebe de 1 a ${MAX_LOTE} itens e grava numa escrita só, com um commit.
 Tudo ou nada: se um item for inválido, nenhum é gravado e o erro aponta a posição.`;
 
 function findSkill(career: Career, name: string): Skill {
@@ -245,6 +247,7 @@ Sem confirm, devolve só o diff.`,
       return respond(
         await runWrite(
           config,
+          'update_profile',
           confirm,
           (career) => ({ ...career, profile: { ...career.profile, ...patch } as Career['profile'] }),
           loadCareerOrEmpty,
@@ -289,7 +292,7 @@ Sem confirm, devolve só o diff do que faria.`,
     },
     async ({ experiences, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'add_experience', confirm, (career) => {
           const novas = experiences.map((experience, i) => {
             requireFreeId(
               [...career.experiences, ...experiences.slice(0, i)],
@@ -339,7 +342,7 @@ versiona.`,
     },
     async ({ id, patch, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'update_experience', confirm, (career) => {
           find(career.experiences, id, 'Experiência');
 
           return {
@@ -362,7 +365,7 @@ versiona.`,
 Recusa se alguma skill citar essa experiência como evidência — remover
 deixaria o arquivo inválido. Tire a evidência primeiro.
 
-Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+Sem confirm, devolve só o diff. O conteúdo anterior fica no Git do data dir.`,
       inputSchema: {
         id: Id.describe('Id da experiência a remover.'),
         confirm: confirmInput,
@@ -377,7 +380,7 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     },
     async ({ id, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'delete_experience', confirm, (career) => {
           find(career.experiences, id, 'Experiência');
           requireNoEvidence(career, 'experience', id);
 
@@ -426,7 +429,7 @@ Sem confirm, devolve só o diff do que faria.`,
     },
     async ({ education, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'add_education', confirm, (career) => {
           const novas = education.map((item, i) => {
             requireFreeId(
               [...career.education, ...education.slice(0, i)],
@@ -472,7 +475,7 @@ Sem confirm, devolve só o diff.`,
     },
     async ({ id, patch, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'update_education', confirm, (career) => {
           find(career.education, id, 'Formação');
 
           return {
@@ -495,7 +498,7 @@ Sem confirm, devolve só o diff.`,
 Recusa se alguma skill citar essa formação como evidência. Tire a evidência
 primeiro.
 
-Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+Sem confirm, devolve só o diff. O conteúdo anterior fica no Git do data dir.`,
       inputSchema: { id: Id.describe('Id da formação a remover.'), confirm: confirmInput },
       outputSchema: WRITE_OUTPUT,
       annotations: {
@@ -507,7 +510,7 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     },
     async ({ id, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'delete_education', confirm, (career) => {
           find(career.education, id, 'Formação');
           requireNoEvidence(career, 'education', id);
 
@@ -553,7 +556,7 @@ Sem confirm, devolve só o diff do que faria.`,
     },
     async ({ certifications, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'add_certification', confirm, (career) => {
           const novas = certifications.map((certification, i) => {
             requireFreeId(
               [...career.certifications, ...certifications.slice(0, i)],
@@ -599,7 +602,7 @@ Sem confirm, devolve só o diff.`,
     },
     async ({ id, patch, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'update_certification', confirm, (career) => {
           find(career.certifications, id, 'Certificação');
 
           return {
@@ -622,7 +625,7 @@ Sem confirm, devolve só o diff.`,
 Recusa se alguma skill citar essa certificação como evidência. Tire a
 evidência primeiro.
 
-Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+Sem confirm, devolve só o diff. O conteúdo anterior fica no Git do data dir.`,
       inputSchema: { id: Id.describe('Id da certificação a remover.'), confirm: confirmInput },
       outputSchema: WRITE_OUTPUT,
       annotations: {
@@ -634,7 +637,7 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     },
     async ({ id, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'delete_certification', confirm, (career) => {
           find(career.certifications, id, 'Certificação');
           requireNoEvidence(career, 'certification', id);
 
@@ -675,7 +678,7 @@ Sem confirm, devolve só o diff do que faria.`,
     },
     async ({ languages, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'add_language', confirm, (career) => {
           languages.forEach((language, i) => {
             const taken = [...career.languages, ...languages.slice(0, i)];
             if (taken.some((item) => item.name.toLowerCase() === language.name.toLowerCase())) {
@@ -714,7 +717,7 @@ Sem confirm, devolve só o diff.`,
     },
     async ({ name, patch, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'update_language', confirm, (career) => {
           const alvo = findLanguage(career, name);
 
           return {
@@ -734,7 +737,7 @@ Sem confirm, devolve só o diff.`,
       title: 'Remover idioma',
       description: `Remove um idioma do career.yml, achado pelo nome (ignorando maiúsculas).
 
-Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+Sem confirm, devolve só o diff. O conteúdo anterior fica no Git do data dir.`,
       inputSchema: {
         name: z.string().min(1).describe('Nome do idioma a remover.'),
         confirm: confirmInput,
@@ -749,7 +752,7 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     },
     async ({ name, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'delete_language', confirm, (career) => {
           const alvo = findLanguage(career, name);
 
           return {
@@ -792,7 +795,7 @@ Sem confirm, devolve só o diff do que faria.`,
     },
     async ({ projects, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'add_project', confirm, (career) => {
           const novos = projects.map((project, i) => {
             requireFreeId(
               [...career.projects, ...projects.slice(0, i)],
@@ -842,7 +845,7 @@ Sem confirm, devolve só o diff.`,
     },
     async ({ id, patch, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'update_project', confirm, (career) => {
           find(career.projects, id, 'Projeto');
 
           return {
@@ -865,7 +868,7 @@ Sem confirm, devolve só o diff.`,
 Recusa se alguma skill citar esse projeto como evidência. Tire a evidência
 primeiro.
 
-Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
+Sem confirm, devolve só o diff. O conteúdo anterior fica no Git do data dir.`,
       inputSchema: { id: Id.describe('Id do projeto a remover.'), confirm: confirmInput },
       outputSchema: WRITE_OUTPUT,
       annotations: {
@@ -877,7 +880,7 @@ Sem confirm, devolve só o diff. O conteúdo anterior fica em history/.`,
     },
     async ({ id, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'delete_project', confirm, (career) => {
           find(career.projects, id, 'Projeto');
           requireNoEvidence(career, 'project', id);
 
@@ -922,7 +925,7 @@ Entra com provenance.verified = false.`,
     },
     async ({ skills, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'add_skill', confirm, (career) => {
           const novas = skills.map((skill, i) => {
             const taken = [...career.skills, ...skills.slice(0, i)];
             if (taken.some((item) => item.name.toLowerCase() === skill.name.toLowerCase())) {
@@ -968,7 +971,7 @@ Sem confirm, devolve só o diff.`,
     },
     async ({ name, patch, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'update_skill', confirm, (career) => {
           const alvo = findSkill(career, name);
 
           return {
@@ -1012,7 +1015,7 @@ Não versiona quando a entidade já está no estado pedido.`,
     },
     async ({ kind, id, verified, confirm }) => {
       return respond(
-        await runWrite(config, confirm, (career) => {
+        await runWrite(config, 'mark_verified', confirm, (career) => {
           const stamp = <T extends { provenance: { verified: boolean } }>(item: T): T => ({
             ...item,
             provenance: { ...item.provenance, verified },

@@ -1,4 +1,3 @@
-import { rm } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { startFakeGithub, type FakeGithub } from '../../test/github-fake.js';
 import { startHarness, type Harness } from '../../test/harness.js';
@@ -48,7 +47,7 @@ afterAll(async () => {
 beforeEach(async () => {
   github.reset();
   await h.writeCareer(CAREER);
-  await rm(h.historyDir, { recursive: true, force: true });
+  await h.resetHistory();
 });
 
 const suggest = (args: Record<string, unknown> = {}): Promise<SuggestResult> =>
@@ -151,7 +150,7 @@ describe('suggest_skills_from_github com confirm', () => {
     expect((await suggest({ confirm: true, accept: ['Rust'] })).added).toEqual(['Rust']);
   });
 
-  it('tira snapshot antes de escrever', async () => {
+  it('grava sugestões que passam na validação', async () => {
     github.setRepos([{ name: 'a' }]);
     github.setLanguages('etovaz/a', { Go: 300 });
 

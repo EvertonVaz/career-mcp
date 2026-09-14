@@ -1,8 +1,16 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { diffCareer, snapshotBeforeWrite, type Change } from './history.js';
+import { promisify } from 'node:util';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  commitCareer,
+  diffCareer,
+  OUTSIDE_CHANGES,
+  prepareHistory,
+  type Change,
+} from './history.js';
 import { CareerFile, type Career } from './schema.js';
 
 function career(overrides: Partial<Career> = {}): Career {
@@ -221,75 +229,127 @@ describe('diffCareer', () => {
 });
 
 
-describe('snapshotBeforeWrite', () => {
+describe('histórico em Git', () => {
+  const execFileAsync = promisify(execFile);
+
   let dir: string;
-  let historyDir: string;
   let careerPath: string;
+
+  async function git(...args: string[]): Promise<string> {
+    const { stdout } = await execFileAsync('git', ['-C', dir, ...args]);
+    return stdout;
+  }
+
+  const subjects = async (): Promise<string[]> =>
+    (await git('log', '--all', '--format=%s')).split('\n').filter(Boolean);
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'career-'));
-    historyDir = path.join(dir, 'history');
     careerPath = path.join(dir, 'career.yml');
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await rm(dir, { recursive: true, force: true });
   });
 
-  const CHANGES: Change[] = [
+  const HEADLINE: Change[] = [
     { path: 'profile.headline', kind: 'changed', before: 'Dev', after: 'Tech Lead' },
   ];
 
-  it('devolve null quando ainda não há arquivo para preservar', async () => {
-    expect(await snapshotBeforeWrite(historyDir, careerPath, CHANGES)).toBeNull();
-  });
+  describe('prepareHistory', () => {
+    it('transforma o diretório do career.yml num repositório', async () => {
+      await prepareHistory(careerPath);
 
-  it('copia o conteúdo exato do arquivo atual', async () => {
-    await writeFile(careerPath, 'profile:\n  name: Everton\n');
+      expect((await git('rev-parse', '--show-toplevel')).trim()).toBe(await realpath(dir));
+    });
 
-    const snapshot = await snapshotBeforeWrite(historyDir, careerPath, CHANGES);
+    it('não commita nada quando o arquivo ainda não existe', async () => {
+      await prepareHistory(careerPath);
 
-    expect(snapshot).not.toBeNull();
-    expect(await readFile(snapshot!.file, 'utf8')).toBe('profile:\n  name: Everton\n');
-  });
+      expect(await subjects()).toEqual([]);
+    });
 
-  it('grava o diff ao lado do snapshot', async () => {
-    await writeFile(careerPath, 'profile:\n  name: Everton\n');
+    it('commita o arquivo que existia sem versionamento como mudança externa', async () => {
+      await writeFile(careerPath, 'profile:\n  name: Everton\n');
 
-    const snapshot = await snapshotBeforeWrite(historyDir, careerPath, CHANGES);
+      await prepareHistory(careerPath);
 
-    expect(JSON.parse(await readFile(snapshot!.diff, 'utf8'))).toEqual({
-      timestamp: snapshot!.timestamp,
-      source: careerPath,
-      changes: CHANGES,
+      expect(await subjects()).toEqual([OUTSIDE_CHANGES]);
+    });
+
+    it('commita à parte a edição manual feita depois do último commit', async () => {
+      await prepareHistory(careerPath);
+      await writeFile(careerPath, 'profile:\n  headline: Tech Lead\n');
+      await commitCareer(careerPath, 'update_profile', HEADLINE);
+
+      await writeFile(careerPath, 'profile:\n  headline: Editado na mão\n');
+      await prepareHistory(careerPath);
+
+      expect(await subjects()).toEqual([OUTSIDE_CHANGES, 'update_profile: profile.headline']);
+    });
+
+    it('não gera commit quando não há nada pendente', async () => {
+      await writeFile(careerPath, 'profile:\n  name: Everton\n');
+
+      await prepareHistory(careerPath);
+      await prepareHistory(careerPath);
+
+      expect(await subjects()).toHaveLength(1);
+    });
+
+    it('ignora GIT_DIR herdado do ambiente', async () => {
+      // Rodando dentro de um hook do Git, GIT_DIR aponta para outro repo.
+      const outro = await mkdtemp(path.join(tmpdir(), 'outro-'));
+      vi.stubEnv('GIT_DIR', path.join(outro, '.git'));
+      await writeFile(careerPath, 'profile:\n  name: Everton\n');
+
+      await prepareHistory(careerPath);
+      vi.unstubAllEnvs();
+
+      expect(await subjects()).toEqual([OUTSIDE_CHANGES]);
+      await rm(outro, { recursive: true, force: true });
     });
   });
 
-  it('cria o diretório de history quando não existe', async () => {
-    await writeFile(careerPath, 'profile:\n  name: Everton\n');
+  describe('commitCareer', () => {
+    beforeEach(async () => {
+      await prepareHistory(careerPath);
+      await writeFile(careerPath, 'profile:\n  headline: Tech Lead\n');
+    });
 
-    await snapshotBeforeWrite(historyDir, careerPath, CHANGES);
+    it('põe a tool e o path no título e as mudanças no corpo', async () => {
+      await commitCareer(careerPath, 'update_profile', HEADLINE);
 
-    expect(await readdir(historyDir)).toHaveLength(2);
-  });
+      expect((await git('log', '-1', '--format=%B')).trim()).toBe(
+        'update_profile: profile.headline\n\nchanged profile.headline',
+      );
+    });
 
-  it('preserva conteúdo corrompido sem tentar validar', async () => {
-    await writeFile(careerPath, 'isso: [nao é yaml valido\n');
+    it('conta no título as mudanças além da primeira', async () => {
+      await commitCareer(careerPath, 'add_skill', [
+        { path: 'skills[Go]', kind: 'added' },
+        { path: 'skills[Rust]', kind: 'added' },
+        { path: 'skills[Zig]', kind: 'added' },
+      ]);
 
-    const snapshot = await snapshotBeforeWrite(historyDir, careerPath, CHANGES);
+      expect(await subjects()).toEqual(['add_skill: skills[Go] (+2)']);
+    });
 
-    expect(await readFile(snapshot!.file, 'utf8')).toBe('isso: [nao é yaml valido\n');
-  });
+    it('versiona só o career.yml', async () => {
+      await writeFile(path.join(dir, 'private.yml'), 'phone: "123"\n');
 
-  it('não sobrescreve snapshots feitos no mesmo instante', async () => {
-    await writeFile(careerPath, 'profile:\n  name: Everton\n');
+      await commitCareer(careerPath, 'update_profile', HEADLINE);
 
-    const [first, second] = await Promise.all([
-      snapshotBeforeWrite(historyDir, careerPath, CHANGES),
-      snapshotBeforeWrite(historyDir, careerPath, CHANGES),
-    ]);
+      expect((await git('ls-files')).trim()).toBe('career.yml');
+    });
 
-    expect(first!.file).not.toBe(second!.file);
-    expect(await readdir(historyDir)).toHaveLength(4);
+    it('assina como career-mcp', async () => {
+      await commitCareer(careerPath, 'update_profile', HEADLINE);
+
+      expect((await git('log', '-1', '--format=%an <%ae>')).trim()).toBe(
+        'career-mcp <career-mcp@localhost>',
+      );
+    });
   });
 });

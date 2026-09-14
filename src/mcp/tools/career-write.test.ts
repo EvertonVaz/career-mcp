@@ -1,5 +1,5 @@
-import { readdir, rm } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { OUTSIDE_CHANGES } from '../../lib/history.js';
 import { startHarness, type Harness } from '../../test/harness.js';
 
 const CAREER = `
@@ -50,7 +50,7 @@ afterAll(() => h.close());
 
 beforeEach(async () => {
   await h.writeCareer(CAREER);
-  await rm(h.historyDir, { recursive: true, force: true });
+  await h.resetHistory();
 });
 
 const call = (name: string, args: Record<string, unknown>): Promise<WriteResult> =>
@@ -82,7 +82,7 @@ describe('add_experience', () => {
       expect.objectContaining({ path: 'experiences[beta-2021]', kind: 'added' }),
     ]);
     expect(await h.readCareer()).toBe(antes);
-    await expect(readdir(h.historyDir)).rejects.toThrow();
+    expect(await h.commits()).toEqual([]);
   });
 
   it('com confirm escreve e versiona', async () => {
@@ -90,7 +90,7 @@ describe('add_experience', () => {
 
     expect(result.applied).toBe(true);
     expect((await experiences()).map((e) => e.id)).toEqual(['acme-2023', 'beta-2021']);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('nasce como não verificada, de origem manual', async () => {
@@ -151,7 +151,7 @@ describe('add_experience', () => {
     const GAMA = { id: 'gama', company: 'Gama', role: 'Dev', start: '01/01/2019' };
     const DELTA = { id: 'delta', company: 'Delta', role: 'Dev', start: '01/01/2018' };
 
-    it('grava todas numa escrita só, com um snapshot', async () => {
+    it('grava todas numa escrita só, com um commit', async () => {
       const result = await call('add_experience', {
         experiences: [NOVA, GAMA, DELTA],
         confirm: true,
@@ -164,7 +164,7 @@ describe('add_experience', () => {
         'gama',
         'delta',
       ]);
-      expect(await readdir(h.historyDir)).toHaveLength(2);
+      expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
     });
 
     it('é tudo ou nada: um item inválido não grava nenhum', async () => {
@@ -278,7 +278,7 @@ describe('update_experience', () => {
 
     expect(result.changes).toEqual([]);
     expect(result.applied).toBe(false);
-    await expect(readdir(h.historyDir)).rejects.toThrow();
+    expect(await h.commits()).toEqual([]);
   });
 
   it('recusa id inexistente', async () => {
@@ -319,7 +319,7 @@ describe('delete_experience', () => {
     await call('delete_experience', { id: 'acme-2023', confirm: true });
 
     expect(await experiences()).toEqual([]);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa remover experiência citada como evidência de uma skill', async () => {

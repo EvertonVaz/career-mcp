@@ -1,5 +1,6 @@
-import { readdir, rm } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { OUTSIDE_CHANGES } from '../../lib/history.js';
 import { startFakeGithub, type FakeGithub } from '../../test/github-fake.js';
 import { startHarness, type Harness } from '../../test/harness.js';
 
@@ -70,8 +71,8 @@ afterAll(async () => {
 beforeEach(async () => {
   github.reset();
   await h.writeCareer(CAREER);
-  // history acumula entre testes; cada um precisa começar do zero.
-  await rm(h.historyDir, { recursive: true, force: true });
+  // O repo acumula commits entre testes; cada um precisa começar do zero.
+  await h.resetHistory();
 });
 
 const sync = (args: Record<string, unknown> = {}): Promise<SyncResult> =>
@@ -204,15 +205,12 @@ describe('sync_github com confirm', () => {
     expect((await h.readResource('career://projects')) as unknown[]).toHaveLength(1);
   });
 
-  it('tira snapshot em history antes de escrever', async () => {
+  it('commita o estado anterior e o que entrou', async () => {
     github.setRepos([{ name: 'career-mcp' }]);
 
     await sync({ confirm: true });
 
-    const arquivos = await readdir(h.historyDir);
-    expect(arquivos.filter((f) => f.endsWith('.yml'))).toHaveLength(1);
-    expect(arquivos.filter((f) => f.endsWith('.diff.json'))).toHaveLength(1);
-    expect(arquivos).toHaveLength(2);
+    expect(await h.commits()).toEqual(['sync_github: projects[career-mcp]', OUTSIDE_CHANGES]);
   });
 
   it('devolve o diff do que entrou', async () => {

@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Config } from '../../config.js';
 import { createGithub, fetchLanguages, fetchRepos } from '../../lib/github.js';
-import { diffCareer, snapshotBeforeWrite, type Change } from '../../lib/history.js';
+import { commitCareer, diffCareer, prepareHistory, type Change } from '../../lib/history.js';
 import { loadCareer, saveCareer, withCareerLock } from '../../lib/loader.js';
 import type { Career } from '../../lib/schema.js';
 
@@ -34,7 +34,7 @@ bytes e repos[] para você julgar se é skill de verdade ou um arquivo solto.
 Só linguagens detectadas pelo GitHub — topics não entram, porque virariam
 palpite sobre categoria.
 
-Sem confirm não escreve. Com confirm: true, tira snapshot em history/ e grava
+Sem confirm não escreve. Com confirm: true, grava num commit do data dir
 como category "language" e provenance.verified = false. Use accept para
 escolher: accept: ["Go"]. Sem accept, aplica todas as sugestões listadas.
 
@@ -142,8 +142,9 @@ sync_github), minRepos (mínimo de repos por linguagem) e limit.`,
         const after: Career = { ...career, skills: [...career.skills, ...novas] };
         const changes: Change[] = diffCareer(career, after);
 
-        await snapshotBeforeWrite(config.paths.history, config.paths.career, changes);
+        await prepareHistory(config.paths.career);
         await saveCareer(config.paths.career, after);
+        await commitCareer(config.paths.career, 'suggest_skills_from_github', changes);
 
         return respond({
           ...base,

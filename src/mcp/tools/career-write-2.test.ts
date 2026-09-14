@@ -1,5 +1,5 @@
-import { readdir, rm } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { OUTSIDE_CHANGES } from '../../lib/history.js';
 import { startHarness, type Harness } from '../../test/harness.js';
 
 const CAREER = `
@@ -37,7 +37,7 @@ afterAll(() => h.close());
 
 beforeEach(async () => {
   await h.writeCareer(CAREER);
-  await rm(h.historyDir, { recursive: true, force: true });
+  await h.resetHistory();
 });
 
 const call = (name: string, args: Record<string, unknown>): Promise<WriteResult> =>
@@ -104,7 +104,7 @@ describe('add_project', () => {
     });
 
     expect((await projects()).map((p) => p.id)).toEqual(['career-mcp', 'a', 'b']);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa id repetido dentro do próprio lote', async () => {
@@ -157,7 +157,7 @@ describe('delete_project', () => {
     await call('delete_project', { id: 'career-mcp', confirm: true });
 
     expect(await projects()).toEqual([]);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 });
 
@@ -224,14 +224,14 @@ describe('add_skill', () => {
     expect(result.isError).toBe(true);
   });
 
-  it('grava 20 skills numa escrita só, com um snapshot', async () => {
+  it('grava 20 skills numa escrita só, com um commit', async () => {
     const vinte = Array.from({ length: 20 }, (_, i) => ({ name: `Skill ${i}`, category: 'tool' }));
 
     const result = await call('add_skill', { skills: vinte, confirm: true });
 
     expect(result.changes).toHaveLength(20);
     expect(await skills()).toHaveLength(21);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa nome repetido dentro do próprio lote, ignorando caixa', async () => {
@@ -342,7 +342,7 @@ describe('mark_verified', () => {
     });
 
     expect(result.changes).toEqual([]);
-    await expect(readdir(h.historyDir)).rejects.toThrow();
+    expect(await h.commits()).toEqual([]);
   });
 
   it('recusa id inexistente', async () => {
@@ -417,7 +417,7 @@ describe('add_education', () => {
       end: null,
       provenance: { verified: false, source: 'manual' },
     });
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa id que já existe', async () => {
@@ -501,7 +501,7 @@ describe('delete_education', () => {
     await call('delete_education', { id: 'usp-2015', confirm: true });
 
     expect(await education()).toEqual([]);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa remover formação citada como evidência de uma skill', async () => {
@@ -641,7 +641,7 @@ describe('delete_certification', () => {
     await call('delete_certification', { id: 'aws-saa', confirm: true });
 
     expect(await certifications()).toEqual([]);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa remover certificação citada como evidência de uma skill', async () => {
@@ -687,7 +687,7 @@ describe('add_language', () => {
       { name: 'Inglês', level: 'B2' },
       { name: 'Espanhol', level: 'A2' },
     ]);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa idioma que já existe, ignorando maiúsculas', async () => {
@@ -777,7 +777,7 @@ describe('delete_language', () => {
     await call('delete_language', { name: 'inglês', confirm: true });
 
     expect(await languages()).toEqual([]);
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa idioma inexistente', async () => {
@@ -811,7 +811,7 @@ describe('update_profile', () => {
       headline: 'Tech Lead',
       links: { github: 'https://github.com/etovaz' },
     });
-    expect(await readdir(h.historyDir)).toHaveLength(2);
+    expect(await h.commits()).toEqual([expect.stringMatching(/^\w+: /), OUTSIDE_CHANGES]);
   });
 
   it('recusa headline acima do limite do LinkedIn', async () => {
@@ -850,7 +850,8 @@ describe('update_profile', () => {
         headline: 'Desenvolvedor',
       });
       expect(await projects()).toEqual([]);
-      expect(await readdir(h.historyDir)).toEqual([]);
+      // Não havia arquivo antes: a criação é o primeiro commit, sem mudança externa.
+      expect(await h.commits()).toEqual(['update_profile: profile']);
     });
 
     it('recusa criar sem name e headline', async () => {
