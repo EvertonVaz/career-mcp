@@ -20,3 +20,17 @@ services:
       - ${HOME}/.ssh:/home/etovaz/.ssh
       - ${HOME}/.local/share/mise/installs/github-akitaonrails-ai-memory:/home/etovaz/.local/share/mise/installs/github-akitaonrails-ai-memory:ro
       - ${HOME}/.local/share/ai-memory:/home/etovaz/.local/share/ai-memory
+
+  # Servidor com hot reload (tsx watch) sobre o mesmo código do dev. O .env é
+  # lido pelo próprio app; data/, output/ e cache/ ficam no projeto.
+  # Do dev: http://app:3000. Do host: http://127.0.0.1:3001.
+  app:
+    image: node:25
+    restart: always
+    user: ${UID:-1000}:${GID:-1000}
+    working_dir: /home/etovaz/documentos/career-mcp
+    command: npm run dev
+    volumes:
+      - ./:/home/etovaz/documentos/career-mcp
+    ports:
+      - 127.0.0.1:3001:3000
