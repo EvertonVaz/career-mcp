@@ -80,6 +80,14 @@ describe('tailor-resume', () => {
     expect(text).toContain('without_evidence');
     expect(text).toMatch(/não invent/i);
   });
+
+  it('define o modelo: resumo curto, bullet só no que encaixa, sem projetos', async () => {
+    const text = await textOf('tailor-resume', { vaga: 'qualquer' });
+
+    expect(text).toMatch(/no máximo 5 linhas/i);
+    expect(text).toMatch(/sem bullet/i);
+    expect(text).toMatch(/projetos não entram/i);
+  });
 });
 
 describe('criar-perfil', () => {

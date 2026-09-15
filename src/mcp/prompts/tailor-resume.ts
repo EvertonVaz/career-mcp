@@ -27,7 +27,16 @@ Siga nesta ordem:
    Não invente experiência, não estique o que existe e não escreva bullet
    novo para cobrir requisito.
 
-5. Aponte onde está o arquivo gerado e o que mudou de ordem em relação ao
+5. Ajuste o arquivo gerado a este modelo:
+   - Resumo: no máximo 5 linhas, um parágrafo só.
+   - Competências: agrupadas por tema, só o que a vaga pede e tem evidência.
+   - Experiência: bullets só nas experiências que mais se encaixam na vaga;
+     as demais ficam sem bullet, apenas cargo, empresa e período.
+   - Projetos não entram no currículo. Podem sustentar um requisito em
+     matched[], mas a seção sai do arquivo.
+   - Formação: mantém como está.
+
+6. Aponte onde está o arquivo gerado e o que mudou de ordem em relação ao
    currículo padrão.`;
 }
 
